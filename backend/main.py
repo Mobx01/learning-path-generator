@@ -13,7 +13,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# NEW: Register the topics router
 app.include_router(topics.router)
 app.include_router(generator.router)
 
