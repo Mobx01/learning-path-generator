@@ -8,6 +8,10 @@ router = APIRouter(
     tags=["Topics"]
 )
 
+# ==========================================
+# TOPIC ROUTES
+# ==========================================
+
 # POST route to add a new seed topic
 @router.post("/", response_model=schemas.TopicResponse)
 def create_topic(topic: schemas.TopicCreate, db: Session = Depends(get_db)):
@@ -31,6 +35,11 @@ def create_topic(topic: schemas.TopicCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=list[schemas.TopicResponse])
 def get_topics(db: Session = Depends(get_db)):
     return db.query(models.Topic).all()
+
+# ==========================================
+# DEPENDENCY ROUTES
+# ==========================================
+
 # POST route to link a prerequisite (parent) to a topic (child)
 @router.post("/dependencies/", response_model=schemas.DependencyResponse)
 def create_dependency(dependency: schemas.DependencyCreate, db: Session = Depends(get_db)):
@@ -64,3 +73,40 @@ def create_dependency(dependency: schemas.DependencyCreate, db: Session = Depend
 @router.get("/dependencies/", response_model=list[schemas.DependencyResponse])
 def get_dependencies(db: Session = Depends(get_db)):
     return db.query(models.TopicDependency).all()
+
+# ==========================================
+# RESOURCE ROUTES (PHASE 5)
+# ==========================================
+
+# POST route to add a new learning resource to a specific topic
+@router.post("/{topic_id}/resources", response_model=schemas.ResourceResponse)
+def add_resource_to_topic(topic_id: int, resource: schemas.ResourceBase, db: Session = Depends(get_db)):
+    # Verify the topic exists
+    db_topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+    if not db_topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Create the resource and link it to the topic_id
+    new_resource = models.Resource(
+        topic_id=topic_id,
+        title=resource.title,
+        url=resource.url,
+        resource_type=resource.resource_type,
+        difficulty=resource.difficulty
+    )
+    db.add(new_resource)
+    db.commit()
+    db.refresh(new_resource)
+    return new_resource
+
+# GET route to fetch all resources for a specific topic
+@router.get("/{topic_id}/resources", response_model=list[schemas.ResourceResponse])
+def get_topic_resources(topic_id: int, db: Session = Depends(get_db)):
+    # Verify the topic exists
+    db_topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+    if not db_topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Fetch and return all resources matching the topic_id
+    resources = db.query(models.Resource).filter(models.Resource.topic_id == topic_id).all()
+    return resources

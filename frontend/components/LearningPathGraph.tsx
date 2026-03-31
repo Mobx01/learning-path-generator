@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -12,6 +12,15 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { transformPathToGraph } from '../graph/graphTransformers';
 
+// Define the shape of our resource data
+interface Resource {
+  id: number;
+  title: string;
+  url: string;
+  resource_type: string;
+  difficulty: string;
+}
+
 export default function LearningPathGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -20,6 +29,19 @@ export default function LearningPathGraph() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // New states for Phase 5: Resources
+  const [allTopics, setAllTopics] = useState<any[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
+
+  // Fetch all topics on mount so we can look up their IDs later
+  useEffect(() => {
+    fetch('http://localhost:8000/topics/')
+      .then(res => res.json())
+      .then(data => setAllTopics(data))
+      .catch(err => console.error("Failed to load topics:", err));
+  }, []);
 
   const handleGeneratePath = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +52,7 @@ export default function LearningPathGraph() {
     setNodes([]);
     setEdges([]);
     setSelectedTopic(null);
+    setResources([]);
 
     try {
       const response = await fetch('http://localhost:8000/generate-path', {
@@ -38,36 +61,53 @@ export default function LearningPathGraph() {
         body: JSON.stringify({ topic: searchQuery }),
       });
 
-      // 🚨 Extract the exact error message sent by FastAPI's HTTPException
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to generate path from backend.");
+        throw new Error(errorData.detail || "Failed to generate path.");
       }
 
       const data = await response.json();
-      
-      // Handle the data whether FastAPI returns an array directly or an object like {"path": [...]}
       const pathArray = Array.isArray(data) ? data : data.path; 
       
       if (!pathArray || pathArray.length === 0) {
          throw new Error("No path generated for this topic.");
       }
 
-      // Transform and set the graph
       const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
       setNodes(newNodes);
       setEdges(newEdges);
       
     } catch (err: any) {
-      setError(err.message); // Displays the real error (e.g., "Topic not found")
+      setError(err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
-    setSelectedTopic(node.data.label);
-  }, []);
+  // Triggered when a user clicks a box in the graph
+  const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
+    const clickedName = node.data.label;
+    setSelectedTopic(clickedName);
+    setResources([]);
+    
+    // Find the ID of the clicked topic
+    const matchedTopic = allTopics.find(t => t.topic_name === clickedName);
+    
+    if (matchedTopic) {
+      setIsLoadingResources(true);
+      try {
+        const res = await fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`);
+        if (res.ok) {
+          const data = await res.json();
+          setResources(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch resources:", err);
+      } finally {
+        setIsLoadingResources(false);
+      }
+    }
+  }, [allTopics]);
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-50 text-black">
@@ -79,7 +119,7 @@ export default function LearningPathGraph() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="What do you want to learn? (e.g. Python)"
+            placeholder="What do you want to learn? (e.g. Machine Learning)"
             className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
           <button
@@ -90,7 +130,7 @@ export default function LearningPathGraph() {
             {isLoading ? 'Generating...' : 'Generate Graph'}
           </button>
         </form>
-        {error && <span className="text-red-500 font-medium text-sm overflow-hidden text-ellipsis">{error}</span>}
+        {error && <span className="text-red-500 font-medium text-sm">{error}</span>}
       </div>
 
       {/* Main Interactive Graph Area */}
@@ -116,28 +156,60 @@ export default function LearningPathGraph() {
         </div>
 
         {/* Side panel for Phase 5 (Resources) */}
-        <div className="w-1/3 p-6 bg-white shadow-lg overflow-y-auto text-black">
-          <h2 className="text-2xl font-bold mb-4 border-b pb-2">Topic Explorer</h2>
-          {selectedTopic ? (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-              <h3 className="text-xl font-semibold text-blue-600">{selectedTopic}</h3>
-              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="text-gray-700 text-sm mb-2 font-medium">Coming up in Phase 5:</p>
-                <ul className="list-disc list-inside text-gray-600 space-y-1 text-sm ml-2">
-                  <li>Fetch descriptions from PostgreSQL</li>
-                  <li>Link video tutorials</li>
-                  <li>Link articles & documentation</li>
-                </ul>
+        <div className="w-1/3 bg-white shadow-lg overflow-y-auto text-black flex flex-col">
+          <div className="p-6 border-b border-gray-100 bg-gray-50">
+            <h2 className="text-2xl font-bold">Topic Explorer</h2>
+          </div>
+          
+          <div className="p-6 flex-grow">
+            {selectedTopic ? (
+              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                <h3 className="text-xl font-bold text-blue-600 mb-4">{selectedTopic}</h3>
+                
+                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Recommended Resources</h4>
+                
+                {isLoadingResources ? (
+                  <div className="flex justify-center p-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : resources.length > 0 ? (
+                  <div className="space-y-3">
+                    {resources.map((res) => (
+                      <a 
+                        key={res.id} 
+                        href={res.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group"
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">
+                            {res.resource_type}
+                          </span>
+                          <span className="text-xs text-gray-500 capitalize">{res.difficulty}</span>
+                        </div>
+                        <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                          {res.title}
+                        </h5>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                    <p className="text-gray-500">No resources added for this topic yet.</p>
+                  </div>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-48 text-center">
-              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
-                <span className="text-gray-400 text-2xl">👆</span>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center mt-20">
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                  <span className="text-blue-300 text-3xl">👆</span>
+                </div>
+                <p className="text-gray-500 font-medium">Click on any node in the graph</p>
+                <p className="text-gray-400 text-sm mt-1">to view its learning resources.</p>
               </div>
-              <p className="text-gray-500 italic">Click on any node in the graph to view its details.</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
