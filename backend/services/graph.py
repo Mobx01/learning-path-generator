@@ -3,61 +3,62 @@ from sqlalchemy.orm import Session
 from models import models
 
 def generate_learning_path(db: Session, target_topic_name: str):
-    # 1. Verify the target topic exists
-    target = db.query(models.Topic).filter(models.Topic.topic_name == target_topic_name).first()
+    # 1. Clean input (remove trailing spaces)
+    clean_name = target_topic_name.strip()
+    
+    # 2. Find the target topic (ilike allows case-insensitive matching)
+    target = db.query(models.Topic).filter(models.Topic.topic_name.ilike(f"%{clean_name}%")).first()
     if not target:
-        raise ValueError(f"Topic '{target_topic_name}' not found.")
+        raise ValueError(f"Topic '{clean_name}' not found in database.")
 
-    # 2. Fetch all topics and dependencies to construct the graph
+    # Fetch all data
     all_topics = db.query(models.Topic).all()
     all_deps = db.query(models.TopicDependency).all()
 
-    # Create a quick dictionary to look up names by their ID
+    # Map IDs to Names for the final output
     id_to_name = {t.topic_id: t.topic_name for t in all_topics}
 
-    # 3. Construct directed graph structures (Forward and Reverse)
-    reverse_adj = defaultdict(list) # Child -> Parents (to find prerequisites)
-    forward_adj = defaultdict(list) # Parent -> Child (to find learning order)
+    # 3. Construct directed graph using IDs (Safest method!)
+    reverse_adj = defaultdict(list) # Child ID -> Parent IDs (Prerequisites)
+    forward_adj = defaultdict(list) # Parent ID -> Child IDs (Next Steps)
     
     for dep in all_deps:
-        p_name = id_to_name[dep.parent_topic_id]
-        c_name = id_to_name[dep.child_topic_id]
-        reverse_adj[c_name].append(p_name)
-        forward_adj[p_name].append(c_name)
+        reverse_adj[dep.child_topic_id].append(dep.parent_topic_id)
+        forward_adj[dep.parent_topic_id].append(dep.child_topic_id)
 
-    # 4. Find all required nodes (Target + all its ancestors) using a queue
-    required_nodes = set()
-    queue = deque([target_topic_name])
+    # 4. Find all required node IDs using a queue
+    required_ids = set()
+    queue = deque([target.topic_id]) # Start the queue using the true ID!
     
     while queue:
-        curr = queue.popleft()
-        if curr not in required_nodes:
-            required_nodes.add(curr)
-            for parent in reverse_adj[curr]:
-                queue.append(parent)
+        curr_id = queue.popleft()
+        if curr_id not in required_ids:
+            required_ids.add(curr_id)
+            # Find prerequisites using the integer ID
+            for parent_id in reverse_adj[curr_id]:
+                queue.append(parent_id)
 
-    # 5. Cycle Detection & Topological Sorting (Kahn's Algorithm)
-    in_degree = {node: 0 for node in required_nodes}
-    for node in required_nodes:
-        for child in forward_adj[node]:
-            if child in required_nodes:
-                in_degree[child] += 1
+    # 5. Cycle Detection & Topological Sorting
+    in_degree = {n: 0 for n in required_ids}
+    for n in required_ids:
+        for child_id in forward_adj[n]:
+            if child_id in required_ids:
+                in_degree[child_id] += 1
 
-    topo_order = []
-    # Start with topics that have 0 prerequisites
-    zero_in_degree = deque([n for n in required_nodes if in_degree[n] == 0])
+    topo_order_ids = []
+    zero_in_degree = deque([n for n in required_ids if in_degree[n] == 0])
 
     while zero_in_degree:
-        curr = zero_in_degree.popleft()
-        topo_order.append(curr)
-        for child in forward_adj[curr]:
-            if child in required_nodes:
-                in_degree[child] -= 1
-                if in_degree[child] == 0:
-                    zero_in_degree.append(child)
+        curr_id = zero_in_degree.popleft()
+        topo_order_ids.append(curr_id)
+        for child_id in forward_adj[curr_id]:
+            if child_id in required_ids:
+                in_degree[child_id] -= 1
+                if in_degree[child_id] == 0:
+                    zero_in_degree.append(child_id)
 
-    # If the sorted list doesn't contain all nodes, there is an infinite loop!
-    if len(topo_order) != len(required_nodes):
+    if len(topo_order_ids) != len(required_ids):
         raise ValueError("Invalid Graph: Cycle detected in prerequisites!")
 
-    return topo_order
+    # 6. Convert the sorted IDs back to strings for the frontend
+    return [id_to_name[topic_id] for topic_id in topo_order_ids]
