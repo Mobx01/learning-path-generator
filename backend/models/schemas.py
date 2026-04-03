@@ -75,3 +75,21 @@ class UserResponse(UserBase):
 
 class MarkTopicKnownRequest(BaseModel):
     topic_id: int
+
+# ==========================================
+# PROJECT SCHEMAS (PHASE 9)
+# ==========================================
+class ProjectBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    difficulty: Optional[str] = "Beginner"
+
+class ProjectCreate(ProjectBase):
+    topic_id: int
+
+class ProjectResponse(ProjectBase):
+    id: int
+    topic_id: int
+
+    class Config:
+        from_attributes = True

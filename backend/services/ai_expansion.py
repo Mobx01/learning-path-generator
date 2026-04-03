@@ -91,3 +91,35 @@ def merge_ai_path_into_db(db: Session, ai_path: AILearningPath):
                 db.add(new_dep)
                 
     db.commit() # Finalize all dependencies
+
+# ==========================================
+# PHASE 9: AI PROJECT GENERATOR
+# ==========================================
+class AIProject(BaseModel):
+    title: str
+    description: str
+    difficulty: str
+
+class AIProjectList(BaseModel):
+    projects: list[AIProject]
+
+def generate_ai_projects(topic_name: str) -> AIProjectList:
+    """Generates practical milestone projects for a specific topic using Gemini."""
+    
+    prompt = f"""
+    Generate 2 highly practical, hands-on milestone projects for a student who just finished learning '{topic_name}'.
+    One should be 'Beginner' difficulty and one should be 'Intermediate' or 'Advanced'.
+    Make the descriptions actionable and clear.
+    """
+    
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    response = model.generate_content(
+        prompt,
+        generation_config=genai.GenerationConfig(
+            response_mime_type="application/json",
+            response_schema=AIProjectList,
+        )
+    )
+    
+    return AIProjectList.model_validate_json(response.text)

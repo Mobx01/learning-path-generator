@@ -37,8 +37,6 @@ class Resource(Base):
     # Virtual link back to the parent Topic
     topic = relationship("Topic", back_populates="resources")
 
-# ... keep your existing models at the top ...
-
 # Model for the 'users' table (PHASE 8)
 class User(Base):
     __tablename__ = "users"
@@ -55,3 +53,15 @@ class UserKnownTopic(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     topic_id = Column(Integer, ForeignKey("topics.topic_id", ondelete="CASCADE"), nullable=False)
+
+# ==========================================
+# PHASE 9: PROJECT RECOMMENDATION SYSTEM
+# ==========================================
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic_id = Column(Integer, ForeignKey("topics.topic_id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String)
+    difficulty = Column(String, default="Beginner") # Beginner, Intermediate, Advanced

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database.database import get_db
 from models import models, schemas
+from services.ai_expansion import generate_ai_projects
 
 router = APIRouter(
     prefix="/topics",
@@ -110,3 +111,57 @@ def get_topic_resources(topic_id: int, db: Session = Depends(get_db)):
     # Fetch and return all resources matching the topic_id
     resources = db.query(models.Resource).filter(models.Resource.topic_id == topic_id).all()
     return resources
+
+# ==========================================
+# PHASE 9: PROJECT ENDPOINTS
+# ==========================================
+
+# Add a project to a specific topic
+@router.post("/{topic_id}/projects", response_model=schemas.ProjectResponse)
+def create_project_for_topic(topic_id: int, project: schemas.ProjectBase, db: Session = Depends(get_db)):
+    # Verify topic exists
+    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+        
+    new_project = models.Project(**project.model_dump(), topic_id=topic_id)
+    db.add(new_project)
+    db.commit()
+    db.refresh(new_project)
+    return new_project
+
+# Get all projects for a specific topic (WITH AI AUTO-GENERATION!)
+@router.get("/{topic_id}/projects", response_model=list[schemas.ProjectResponse])
+def get_topic_projects(topic_id: int, db: Session = Depends(get_db)):
+    # 1. Check the database for existing projects
+    projects = db.query(models.Project).filter(models.Project.topic_id == topic_id).all()
+    
+    # 2. AI MAGIC: If no projects exist, generate them on the fly!
+    if not projects:
+        topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+        
+        if topic:
+            print(f"No projects found for '{topic.topic_name}'. Generating via AI...")
+            try:
+                # Ask Gemini to invent projects
+                ai_data = generate_ai_projects(topic.topic_name)
+                
+                # Save the new projects to PostgreSQL
+                for ai_proj in ai_data.projects:
+                    new_project = models.Project(
+                        topic_id=topic_id,
+                        title=ai_proj.title,
+                        description=ai_proj.description,
+                        difficulty=ai_proj.difficulty
+                    )
+                    db.add(new_project)
+                
+                db.commit()
+                
+                # Fetch them from the database again so they have proper IDs
+                projects = db.query(models.Project).filter(models.Project.topic_id == topic_id).all()
+                
+            except Exception as e:
+                print(f"Failed to auto-generate projects: {e}")
+                
+    return projects

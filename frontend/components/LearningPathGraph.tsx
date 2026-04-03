@@ -12,6 +12,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { transformPathToGraph } from '../graph/graphTransformers';
 
+// --- INTERFACES ---
 interface Resource {
   id: number;
   title: string;
@@ -20,8 +21,15 @@ interface Resource {
   difficulty: string;
 }
 
+// Phase 9 Interface
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+  difficulty: string;
+}
+
 export default function LearningPathGraph() {
-  // Hardcoded for Phase 8 prototyping
   const currentUserId = 1;
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -34,8 +42,11 @@ export default function LearningPathGraph() {
   const [error, setError] = useState<string | null>(null);
 
   const [allTopics, setAllTopics] = useState<any[]>([]);
+  
+  // States for Side Panel Data
   const [resources, setResources] = useState<Resource[]>([]);
-  const [isLoadingResources, setIsLoadingResources] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]); // Phase 9
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
   const [isExpanding, setIsExpanding] = useState(false);
   const [isMarkingKnown, setIsMarkingKnown] = useState(false);
@@ -58,16 +69,19 @@ export default function LearningPathGraph() {
     setSelectedTopic(null);
     setSelectedTopicId(null);
     setResources([]);
+    setProjects([]);
 
     try {
       const response = await fetch('http://localhost:8000/generate-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Phase 8: Pass user_id to prune the graph!
         body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
       });
 
-      if (!response.ok) throw new Error("Failed to generate path.");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to generate path.");
+      }
 
       const data = await response.json();
       const pathArray = Array.isArray(data) ? data : data.path; 
@@ -93,7 +107,10 @@ export default function LearningPathGraph() {
         body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
       });
 
-      if (!response.ok) throw new Error("Failed to expand topic.");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to expand topic.");
+      }
 
       const data = await response.json();
       const pathArray = Array.isArray(data) ? data : data.path; 
@@ -109,7 +126,6 @@ export default function LearningPathGraph() {
     }
   };
 
-  // Phase 8: Mark topic as known and re-render graph
   const handleMarkAsKnown = async () => {
     if (!selectedTopicId) return;
     setIsMarkingKnown(true);
@@ -121,7 +137,6 @@ export default function LearningPathGraph() {
       });
 
       if (response.ok) {
-        // Re-generate the graph to show the pruned tree
         await handleGeneratePath();
       }
     } catch (err) {
@@ -135,22 +150,34 @@ export default function LearningPathGraph() {
     const clickedName = node.data.label;
     setSelectedTopic(clickedName);
     setResources([]);
+    setProjects([]);
     
     const matchedTopic = allTopics.find(t => t.topic_name === clickedName);
     
     if (matchedTopic) {
       setSelectedTopicId(matchedTopic.topic_id);
-      setIsLoadingResources(true);
+      setIsLoadingData(true);
+      
       try {
-        const res = await fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`);
-        if (res.ok) {
-          const data = await res.json();
-          setResources(data);
+        // Fetch both Resources and Projects at the same time
+        const [resResponse, projResponse] = await Promise.all([
+          fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`),
+          fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/projects`)
+        ]);
+
+        if (resResponse.ok) {
+          const resData = await resResponse.json();
+          setResources(resData);
+        }
+        
+        if (projResponse.ok) {
+          const projData = await projResponse.json();
+          setProjects(projData);
         }
       } catch (err) {
-        console.error("Failed to fetch resources:", err);
+        console.error("Failed to fetch node data:", err);
       } finally {
-        setIsLoadingResources(false);
+        setIsLoadingData(false);
       }
     } else {
       setSelectedTopicId(null);
@@ -207,7 +234,6 @@ export default function LearningPathGraph() {
                   <h3 className="text-xl font-bold text-blue-600">{selectedTopic}</h3>
                 </div>
                 
-                {/* Phase 7 & 8 Action Buttons */}
                 <div className="flex gap-2 mb-6">
                   <button 
                     onClick={handleExpandTopic}
@@ -225,28 +251,61 @@ export default function LearningPathGraph() {
                   </button>
                 </div>
                 
-                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Recommended Resources</h4>
-                
-                {isLoadingResources ? (
+                {isLoadingData ? (
                   <div className="flex justify-center p-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                   </div>
-                ) : resources.length > 0 ? (
-                  <div className="space-y-3">
-                    {resources.map((res) => (
-                      <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group">
-                        <div className="flex justify-between items-start mb-1">
-                          <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">{res.resource_type}</span>
-                          <span className="text-xs text-gray-500 capitalize">{res.difficulty}</span>
-                        </div>
-                        <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">{res.title}</h5>
-                      </a>
-                    ))}
-                  </div>
                 ) : (
-                  <div className="p-6 text-center bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                    <p className="text-gray-500">No resources added for this topic yet.</p>
-                  </div>
+                  <>
+                    {/* PROJECTS SECTION (Phase 9) */}
+                    <div className="mb-8">
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <span className="text-orange-500">🚀</span> Milestone Projects
+                      </h4>
+                      {projects.length > 0 ? (
+                        <div className="space-y-3">
+                          {projects.map((proj) => (
+                            <div key={proj.id} className="p-4 rounded-lg border border-orange-200 bg-orange-50 shadow-sm">
+                              <div className="flex justify-between items-start mb-2">
+                                <h5 className="font-bold text-orange-900">{proj.title}</h5>
+                                <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
+                                  proj.difficulty === 'Beginner' ? 'bg-green-100 text-green-700' : 
+                                  proj.difficulty === 'Advanced' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {proj.difficulty}
+                                </span>
+                              </div>
+                              {proj.description && <p className="text-sm text-gray-700 leading-relaxed">{proj.description}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">No projects added yet.</p>
+                      )}
+                    </div>
+
+                    {/* RESOURCES SECTION */}
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <span className="text-blue-500">📚</span> Learning Resources
+                      </h4>
+                      {resources.length > 0 ? (
+                        <div className="space-y-3">
+                          {resources.map((res) => (
+                            <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">{res.resource_type}</span>
+                                <span className="text-xs text-gray-500 capitalize">{res.difficulty}</span>
+                              </div>
+                              <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">{res.title}</h5>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">No resources added yet.</p>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             ) : (
