@@ -59,7 +59,7 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
         for parent_id in reverse_adj[curr_id]:
             queue.append(parent_id)
 
-            
+
     # 5. Cycle Detection & Topological Sorting
     in_degree = {n: 0 for n in required_ids}
     for n in required_ids:
@@ -79,8 +79,29 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
                 if in_degree[child_id] == 0:
                     zero_in_degree.append(child_id)
 
+    # ... keep your cycle detection code ...
     if len(topo_order_ids) != len(required_ids):
         raise ValueError("Invalid Graph: Cycle detected in prerequisites!")
 
-    # 6. Convert the sorted IDs back to strings for the frontend
-    return [id_to_name[topic_id] for topic_id in topo_order_ids]
+    # ==========================================
+    # MULTI-BRANCH FIX: Return true nodes & edges
+    # ==========================================
+    result_nodes = [{"id": str(tid), "label": id_to_name[tid]} for tid in topo_order_ids]
+    
+    result_edges = []
+    for parent_id in required_ids:
+        for child_id in forward_adj[parent_id]:
+            # Only include edges that are part of the pruned required path
+            if child_id in required_ids:
+                result_edges.append({
+                    "source": str(parent_id),
+                    "target": str(child_id)
+                })
+
+    return {
+        "graph_data": {
+            "nodes": result_nodes,
+            "edges": result_edges
+        },
+        "path": [id_to_name[topic_id] for topic_id in topo_order_ids] # Kept for fallback
+    }

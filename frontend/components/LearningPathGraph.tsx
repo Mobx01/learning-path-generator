@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -10,24 +10,10 @@ import ReactFlow, {
   NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { transformPathToGraph } from '../graph/graphTransformers';
+import { transformBranchedGraph } from '../graph/graphTransformers';
 
-// --- INTERFACES ---
-interface Resource {
-  id: number;
-  title: string;
-  url: string;
-  resource_type: string;
-  difficulty: string;
-}
-
-// Phase 9 Interface
-interface Project {
-  id: number;
-  title: string;
-  description: string;
-  difficulty: string;
-}
+interface Resource { id: number; title: string; url: string; resource_type: string; difficulty: string; }
+interface Project { id: number; title: string; description: string; difficulty: string; }
 
 export default function LearningPathGraph() {
   const currentUserId = 1;
@@ -42,34 +28,47 @@ export default function LearningPathGraph() {
   const [error, setError] = useState<string | null>(null);
 
   const [allTopics, setAllTopics] = useState<any[]>([]);
-  
-  // States for Side Panel Data
   const [resources, setResources] = useState<Resource[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]); // Phase 9
+  const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
+  // Phase 7 & 8 States
   const [isExpanding, setIsExpanding] = useState(false);
   const [isMarkingKnown, setIsMarkingKnown] = useState(false);
 
+  // Phase 10 States (Progress)
+  const [completedTopicIds, setCompletedTopicIds] = useState<number[]>([]);
+  const [isTogglingCompletion, setIsTogglingCompletion] = useState(false);
+
+  // 1. Fetch Topics and Completed Topics on Mount
   useEffect(() => {
     fetch('http://localhost:8000/topics/')
       .then(res => res.json())
       .then(data => setAllTopics(data))
-      .catch(err => console.error("Failed to load topics:", err));
+      .catch(err => console.error(err));
+
+    fetchCompletedTopics();
   }, []);
 
+  const fetchCompletedTopics = async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics`);
+      if (res.ok) {
+        const data = await res.json();
+        setCompletedTopicIds(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 2. Generate Path and Style Nodes
   const handleGeneratePath = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
 
-    setIsLoading(true);
-    setError(null);
-    setNodes([]);
-    setEdges([]);
-    setSelectedTopic(null);
-    setSelectedTopicId(null);
-    setResources([]);
-    setProjects([]);
+    setIsLoading(true); setError(null); setNodes([]); setEdges([]);
+    setSelectedTopic(null); setSelectedTopicId(null); setResources([]); setProjects([]);
 
     try {
       const response = await fetch('http://localhost:8000/generate-path', {
@@ -84,16 +83,80 @@ export default function LearningPathGraph() {
       }
 
       const data = await response.json();
-      const pathArray = Array.isArray(data) ? data : data.path; 
 
-      const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
-      setNodes(newNodes);
-      setEdges(newEdges);
+   // Pass the new multi-branched data into the new transformer
+      const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
       
+      // Phase 10: Color completed nodes green!
+      const styledNodes = newNodes.map(node => {
+        const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+        if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
+          return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
+        }
+        return node;
+      });
+
+      setNodes(styledNodes);
+      setEdges(newEdges);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Ensure styling updates if completed topics change while graph is active
+  useEffect(() => {
+    if (nodes.length > 0) {
+      setNodes(nds => nds.map(node => {
+        const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+        const isComplete = matchedTopic && completedTopicIds.includes(matchedTopic.topic_id);
+        return { 
+          ...node, 
+          style: isComplete 
+            ? { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } 
+            : undefined // Reset to default if unmarked
+        };
+      }));
+    }
+  }, [completedTopicIds, allTopics, setNodes]);
+
+  // Phase 10: Calculate Progress Percentage
+  const progressStats = useMemo(() => {
+    if (nodes.length === 0) return { percent: 0, completed: 0, total: 0 };
+    let completedCount = 0;
+    nodes.forEach(n => {
+      const matched = allTopics.find(t => t.topic_name === n.data.label);
+      if (matched && completedTopicIds.includes(matched.topic_id)) completedCount++;
+    });
+    return {
+      percent: Math.round((completedCount / nodes.length) * 100),
+      completed: completedCount,
+      total: nodes.length
+    };
+  }, [nodes, allTopics, completedTopicIds]);
+
+  const handleToggleCompletion = async () => {
+    if (!selectedTopicId) return;
+    setIsTogglingCompletion(true);
+    
+    const isCurrentlyCompleted = completedTopicIds.includes(selectedTopicId);
+    try {
+      if (isCurrentlyCompleted) {
+        await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics/${selectedTopicId}`, { method: 'DELETE' });
+      } else {
+        await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic_id: selectedTopicId }),
+        });
+      }
+      // Refresh completion list
+      await fetchCompletedTopics();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsTogglingCompletion(false);
     }
   };
 
@@ -106,24 +169,23 @@ export default function LearningPathGraph() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
       });
+      if (response.ok) {
+        const data = await response.json();
+        const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
+        
+        // Apply styles to new nodes immediately
+        const styledNodes = newNodes.map(node => {
+          const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+          if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
+            return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
+          }
+          return node;
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to expand topic.");
+        setNodes(styledNodes);
+        setEdges(newEdges);
       }
-
-      const data = await response.json();
-      const pathArray = Array.isArray(data) ? data : data.path; 
-      
-      const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
-      setNodes(newNodes);
-      setEdges(newEdges);
-      
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsExpanding(false);
-    }
+    } catch (err: any) { console.error(err); } finally { setIsExpanding(false); }
   };
 
   const handleMarkAsKnown = async () => {
@@ -131,57 +193,30 @@ export default function LearningPathGraph() {
     setIsMarkingKnown(true);
     try {
       const response = await fetch(`http://localhost:8000/users/${currentUserId}/known-topics`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic_id: selectedTopicId }),
       });
-
-      if (response.ok) {
-        await handleGeneratePath();
-      }
-    } catch (err) {
-      console.error("Failed to mark as known", err);
-    } finally {
-      setIsMarkingKnown(false);
-    }
+      if (response.ok) await handleGeneratePath();
+    } catch (err) { console.error(err); } finally { setIsMarkingKnown(false); }
   };
 
   const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
     const clickedName = node.data.label;
-    setSelectedTopic(clickedName);
-    setResources([]);
-    setProjects([]);
+    setSelectedTopic(clickedName); setResources([]); setProjects([]);
     
     const matchedTopic = allTopics.find(t => t.topic_name === clickedName);
-    
     if (matchedTopic) {
       setSelectedTopicId(matchedTopic.topic_id);
       setIsLoadingData(true);
-      
       try {
-        // Fetch both Resources and Projects at the same time
         const [resResponse, projResponse] = await Promise.all([
           fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`),
           fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/projects`)
         ]);
-
-        if (resResponse.ok) {
-          const resData = await resResponse.json();
-          setResources(resData);
-        }
-        
-        if (projResponse.ok) {
-          const projData = await projResponse.json();
-          setProjects(projData);
-        }
-      } catch (err) {
-        console.error("Failed to fetch node data:", err);
-      } finally {
-        setIsLoadingData(false);
-      }
-    } else {
-      setSelectedTopicId(null);
-    }
+        if (resResponse.ok) setResources(await resResponse.json());
+        if (projResponse.ok) setProjects(await projResponse.json());
+      } catch (err) { console.error(err); } finally { setIsLoadingData(false); }
+    } else { setSelectedTopicId(null); }
   }, [allTopics]);
 
   return (
@@ -189,18 +224,8 @@ export default function LearningPathGraph() {
       <div className="p-4 bg-white shadow-sm border-b border-gray-200 z-10 flex gap-4 items-center">
         <h1 className="font-bold text-xl mr-4 whitespace-nowrap">AI Path Generator</h1>
         <form onSubmit={handleGeneratePath} className="flex gap-2 w-full max-w-xl">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="What do you want to learn? (e.g. Machine Learning)"
-            className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-          >
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="What do you want to learn?" className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+          <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
             {isLoading ? 'Generating...' : 'Generate Graph'}
           </button>
         </form>
@@ -208,6 +233,7 @@ export default function LearningPathGraph() {
       </div>
 
       <div className="flex flex-grow overflow-hidden">
+        {/* GRAPH AREA */}
         <div className="flex-grow h-full border-r border-gray-200 relative">
           {nodes.length === 0 && !isLoading && !error && (
             <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
@@ -221,10 +247,27 @@ export default function LearningPathGraph() {
           </ReactFlow>
         </div>
 
+        {/* SIDE PANEL */}
         <div className="w-1/3 bg-white shadow-lg overflow-y-auto text-black flex flex-col">
-          <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-            <h2 className="text-2xl font-bold">Topic Explorer</h2>
-            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">User ID: {currentUserId}</span>
+          <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col gap-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Dashboard</h2>
+              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">User ID: {currentUserId}</span>
+            </div>
+            
+            {/* PHASE 10: PROGRESS BAR UI */}
+            {nodes.length > 0 && (
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                <div className="flex justify-between items-end mb-2">
+                  <span className="text-sm font-bold text-gray-600">Learning Progress</span>
+                  <span className="text-xl font-black text-green-600">{progressStats.percent}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2.5 mb-1">
+                  <div className="bg-green-500 h-2.5 rounded-full transition-all duration-500 ease-in-out" style={{ width: `${progressStats.percent}%` }}></div>
+                </div>
+                <span className="text-xs text-gray-400">{progressStats.completed} of {progressStats.total} modules completed</span>
+              </div>
+            )}
           </div>
           
           <div className="p-6 flex-grow">
@@ -234,76 +277,66 @@ export default function LearningPathGraph() {
                   <h3 className="text-xl font-bold text-blue-600">{selectedTopic}</h3>
                 </div>
                 
-                <div className="flex gap-2 mb-6">
+                <div className="grid grid-cols-2 gap-2 mb-6">
+                  {/* Phase 10: Completion Toggle Button */}
+                  {selectedTopicId && (
+                    <button 
+                      onClick={handleToggleCompletion}
+                      disabled={isTogglingCompletion}
+                      className={`col-span-2 py-2 rounded-md font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
+                        completedTopicIds.includes(selectedTopicId)
+                        ? 'bg-green-600 text-white hover:bg-green-700 shadow-inner'
+                        : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
+                      }`}
+                    >
+                      {completedTopicIds.includes(selectedTopicId) ? '🏆 Completed! (Click to Undo)' : '✔️ Mark as Completed'}
+                    </button>
+                  )}
                   <button 
-                    onClick={handleExpandTopic}
-                    disabled={isExpanding}
-                    className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1.5 rounded-md hover:bg-purple-200 transition-colors flex-1"
+                    onClick={handleExpandTopic} disabled={isExpanding}
+                    className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-2 rounded-md hover:bg-purple-200 transition-colors"
                   >
-                    {isExpanding ? '✨ Expanding...' : '✨ Expand with AI'}
+                    {isExpanding ? '✨ Expanding...' : '✨ Deepen via AI'}
                   </button>
                   <button 
-                    onClick={handleMarkAsKnown}
-                    disabled={isMarkingKnown || !selectedTopicId}
-                    className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1.5 rounded-md hover:bg-green-200 transition-colors flex-1"
+                    onClick={handleMarkAsKnown} disabled={isMarkingKnown || !selectedTopicId}
+                    className="bg-gray-100 text-gray-700 text-xs font-bold px-3 py-2 rounded-md hover:bg-gray-200 transition-colors"
                   >
-                    {isMarkingKnown ? 'Saving...' : '✅ I know this'}
+                    {isMarkingKnown ? 'Pruning...' : '✂️ Prune Node'}
                   </button>
                 </div>
                 
                 {isLoadingData ? (
-                  <div className="flex justify-center p-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                  </div>
+                  <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
                 ) : (
                   <>
-                    {/* PROJECTS SECTION (Phase 9) */}
+                    {/* Projects... */}
                     <div className="mb-8">
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <span className="text-orange-500">🚀</span> Milestone Projects
-                      </h4>
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-orange-500">🚀</span> Milestone Projects</h4>
                       {projects.length > 0 ? (
                         <div className="space-y-3">
                           {projects.map((proj) => (
                             <div key={proj.id} className="p-4 rounded-lg border border-orange-200 bg-orange-50 shadow-sm">
-                              <div className="flex justify-between items-start mb-2">
-                                <h5 className="font-bold text-orange-900">{proj.title}</h5>
-                                <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
-                                  proj.difficulty === 'Beginner' ? 'bg-green-100 text-green-700' : 
-                                  proj.difficulty === 'Advanced' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                                }`}>
-                                  {proj.difficulty}
-                                </span>
-                              </div>
+                              <div className="flex justify-between items-start mb-2"><h5 className="font-bold text-orange-900">{proj.title}</h5></div>
                               {proj.description && <p className="text-sm text-gray-700 leading-relaxed">{proj.description}</p>}
                             </div>
                           ))}
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-400 italic">No projects added yet.</p>
-                      )}
+                      ) : (<p className="text-sm text-gray-400 italic">No projects added yet.</p>)}
                     </div>
 
-                    {/* RESOURCES SECTION */}
+                    {/* Resources... */}
                     <div>
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <span className="text-blue-500">📚</span> Learning Resources
-                      </h4>
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-blue-500">📚</span> Learning Resources</h4>
                       {resources.length > 0 ? (
                         <div className="space-y-3">
                           {resources.map((res) => (
                             <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group">
-                              <div className="flex justify-between items-start mb-1">
-                                <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">{res.resource_type}</span>
-                                <span className="text-xs text-gray-500 capitalize">{res.difficulty}</span>
-                              </div>
                               <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">{res.title}</h5>
                             </a>
                           ))}
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-400 italic">No resources added yet.</p>
-                      )}
+                      ) : (<p className="text-sm text-gray-400 italic">No resources added yet.</p>)}
                     </div>
                   </>
                 )}

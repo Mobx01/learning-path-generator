@@ -42,3 +42,40 @@ def mark_topic_known(user_id: int, req: schemas.MarkTopicKnownRequest, db: Sessi
 def get_known_topics(user_id: int, db: Session = Depends(get_db)):
     known = db.query(models.UserKnownTopic).filter(models.UserKnownTopic.user_id == user_id).all()
     return [k.topic_id for k in known]
+
+# ==========================================
+# PHASE 10: PROGRESS ENDPOINTS
+# ==========================================
+
+# Mark a topic as completed
+@router.post("/{user_id}/completed-topics")
+def mark_topic_completed(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
+    existing = db.query(models.UserCompletedTopic).filter(
+        models.UserCompletedTopic.user_id == user_id,
+        models.UserCompletedTopic.topic_id == req.topic_id
+    ).first()
+    
+    if not existing:
+        completed_link = models.UserCompletedTopic(user_id=user_id, topic_id=req.topic_id)
+        db.add(completed_link)
+        db.commit()
+    return {"message": "Topic marked as completed"}
+
+# Remove a topic from completed (Undo)
+@router.delete("/{user_id}/completed-topics/{topic_id}")
+def unmark_topic_completed(user_id: int, topic_id: int, db: Session = Depends(get_db)):
+    existing = db.query(models.UserCompletedTopic).filter(
+        models.UserCompletedTopic.user_id == user_id,
+        models.UserCompletedTopic.topic_id == topic_id
+    ).first()
+    
+    if existing:
+        db.delete(existing)
+        db.commit()
+    return {"message": "Topic removed from completed"}
+
+# Get all completed topics for a user
+@router.get("/{user_id}/completed-topics")
+def get_completed_topics(user_id: int, db: Session = Depends(get_db)):
+    completed = db.query(models.UserCompletedTopic).filter(models.UserCompletedTopic.user_id == user_id).all()
+    return [c.topic_id for c in completed]

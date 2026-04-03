@@ -107,9 +107,11 @@ def generate_ai_projects(topic_name: str) -> AIProjectList:
     """Generates practical milestone projects for a specific topic using Gemini."""
     
     prompt = f"""
-    Generate 2 highly practical, hands-on milestone projects for a student who just finished learning '{topic_name}'.
-    One should be 'Beginner' difficulty and one should be 'Intermediate' or 'Advanced'.
-    Make the descriptions actionable and clear.
+    Generate a comprehensive, MULTI-BRANCHED prerequisite learning path required to master '{target_topic}'.
+    Do not just create a single linear line. Break down the prerequisites into parallel branches 
+    (e.g., a math branch, a programming branch, a theory branch) that eventually converge into the target topic.
+    Return the result as a structured list of topics and their dependencies.
+    Make sure to include '{target_topic}' itself as the final topic in the list.
     """
     
     model = genai.GenerativeModel('gemini-2.5-flash')

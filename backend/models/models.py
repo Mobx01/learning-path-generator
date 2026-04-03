@@ -65,3 +65,13 @@ class Project(Base):
     title = Column(String, nullable=False)
     description = Column(String)
     difficulty = Column(String, default="Beginner") # Beginner, Intermediate, Advanced
+
+# ==========================================
+# PHASE 10: PROGRESS TRACKING
+# ==========================================
+class UserCompletedTopic(Base):
+    __tablename__ = "user_completed_topics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.topic_id", ondelete="CASCADE"), nullable=False)
