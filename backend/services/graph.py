@@ -2,7 +2,7 @@ from collections import defaultdict, deque
 from sqlalchemy.orm import Session
 from models import models
 
-def generate_learning_path(db: Session, target_topic_name: str):
+def generate_learning_path(db: Session, target_topic_name: str, user_id: int = None):
     # 1. Clean input (remove trailing spaces)
     clean_name = target_topic_name.strip()
     
@@ -18,6 +18,14 @@ def generate_learning_path(db: Session, target_topic_name: str):
     # Map IDs to Names for the final output
     id_to_name = {t.topic_id: t.topic_name for t in all_topics}
 
+    # ==========================================
+    # PHASE 8 LOGIC: Fetch user's known topics
+    # ==========================================
+    known_topic_ids = set()
+    if user_id:
+        known_records = db.query(models.UserKnownTopic).filter(models.UserKnownTopic.user_id == user_id).all()
+        known_topic_ids = {record.topic_id for record in known_records}
+
     # 3. Construct directed graph using IDs (Safest method!)
     reverse_adj = defaultdict(list) # Child ID -> Parent IDs (Prerequisites)
     forward_adj = defaultdict(list) # Parent ID -> Child IDs (Next Steps)
@@ -26,18 +34,32 @@ def generate_learning_path(db: Session, target_topic_name: str):
         reverse_adj[dep.child_topic_id].append(dep.parent_topic_id)
         forward_adj[dep.parent_topic_id].append(dep.child_topic_id)
 
-    # 4. Find all required node IDs using a queue
+# 4. Find all required node IDs using a queue
     required_ids = set()
     queue = deque([target.topic_id]) # Start the queue using the true ID!
     
     while queue:
         curr_id = queue.popleft()
-        if curr_id not in required_ids:
-            required_ids.add(curr_id)
-            # Find prerequisites using the integer ID
-            for parent_id in reverse_adj[curr_id]:
-                queue.append(parent_id)
+        
+        # If we already processed it, skip
+        if curr_id in required_ids:
+            continue
+            
+        # ==========================================
+        # PHASE 8 PRUNING: If the user already knows this topic,
+        # skip it entirely so it disappears from the graph!
+        # (We keep the target_topic visible so the graph doesn't go blank)
+        # ==========================================
+        if curr_id in known_topic_ids and curr_id != target.topic_id:
+            continue
+            
+        required_ids.add(curr_id)
+        
+        # Fetch prerequisites
+        for parent_id in reverse_adj[curr_id]:
+            queue.append(parent_id)
 
+            
     # 5. Cycle Detection & Topological Sorting
     in_degree = {n: 0 for n in required_ids}
     for n in required_ids:

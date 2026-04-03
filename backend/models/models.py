@@ -37,3 +37,21 @@ class Resource(Base):
     # Virtual link back to the parent Topic
     topic = relationship("Topic", back_populates="resources")
 
+# ... keep your existing models at the top ...
+
+# Model for the 'users' table (PHASE 8)
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    experience_level = Column(String, default="Beginner") # Beginner, Intermediate, Advanced
+    learning_goal = Column(String)
+
+# Model to track which topics a user already knows (PHASE 8)
+class UserKnownTopic(Base):
+    __tablename__ = "user_known_topics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.topic_id", ondelete="CASCADE"), nullable=False)

@@ -12,7 +12,6 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { transformPathToGraph } from '../graph/graphTransformers';
 
-// Define the shape of our resource data
 interface Resource {
   id: number;
   title: string;
@@ -22,23 +21,25 @@ interface Resource {
 }
 
 export default function LearningPathGraph() {
+  // Hardcoded for Phase 8 prototyping
+  const currentUserId = 1;
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // States for Phase 5: Resources
   const [allTopics, setAllTopics] = useState<any[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
 
-  // States for Phase 7: AI Topic Expansion
   const [isExpanding, setIsExpanding] = useState(false);
+  const [isMarkingKnown, setIsMarkingKnown] = useState(false);
 
-  // Fetch all topics on mount so we can look up their IDs later
   useEffect(() => {
     fetch('http://localhost:8000/topics/')
       .then(res => res.json())
@@ -46,9 +47,8 @@ export default function LearningPathGraph() {
       .catch(err => console.error("Failed to load topics:", err));
   }, []);
 
-  // Generate Initial Graph
-  const handleGeneratePath = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGeneratePath = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
 
     setIsLoading(true);
@@ -56,26 +56,21 @@ export default function LearningPathGraph() {
     setNodes([]);
     setEdges([]);
     setSelectedTopic(null);
+    setSelectedTopicId(null);
     setResources([]);
 
     try {
       const response = await fetch('http://localhost:8000/generate-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: searchQuery }),
+        // Phase 8: Pass user_id to prune the graph!
+        body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to generate path.");
-      }
+      if (!response.ok) throw new Error("Failed to generate path.");
 
       const data = await response.json();
       const pathArray = Array.isArray(data) ? data : data.path; 
-      
-      if (!pathArray || pathArray.length === 0) {
-         throw new Error("No path generated for this topic.");
-      }
 
       const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
       setNodes(newNodes);
@@ -88,50 +83,63 @@ export default function LearningPathGraph() {
     }
   };
 
-  // Phase 7: Explicitly Expand an Existing Topic via AI
   const handleExpandTopic = async () => {
     if (!selectedTopic) return;
-    
     setIsExpanding(true);
-    setError(null);
-
     try {
       const response = await fetch('http://localhost:8000/expand-topic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: selectedTopic }),
+        body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to expand topic.");
-      }
+      if (!response.ok) throw new Error("Failed to expand topic.");
 
       const data = await response.json();
       const pathArray = Array.isArray(data) ? data : data.path; 
       
-      // Re-draw the graph with the new hybrid data
       const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
       setNodes(newNodes);
       setEdges(newEdges);
       
     } catch (err: any) {
-      setError(err.message);
+      console.error(err);
     } finally {
       setIsExpanding(false);
     }
   };
 
-  // Triggered when a user clicks a box in the graph
+  // Phase 8: Mark topic as known and re-render graph
+  const handleMarkAsKnown = async () => {
+    if (!selectedTopicId) return;
+    setIsMarkingKnown(true);
+    try {
+      const response = await fetch(`http://localhost:8000/users/${currentUserId}/known-topics`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic_id: selectedTopicId }),
+      });
+
+      if (response.ok) {
+        // Re-generate the graph to show the pruned tree
+        await handleGeneratePath();
+      }
+    } catch (err) {
+      console.error("Failed to mark as known", err);
+    } finally {
+      setIsMarkingKnown(false);
+    }
+  };
+
   const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
     const clickedName = node.data.label;
     setSelectedTopic(clickedName);
     setResources([]);
     
-    // Find the ID of the clicked topic
     const matchedTopic = allTopics.find(t => t.topic_name === clickedName);
     
     if (matchedTopic) {
+      setSelectedTopicId(matchedTopic.topic_id);
       setIsLoadingResources(true);
       try {
         const res = await fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`);
@@ -144,12 +152,13 @@ export default function LearningPathGraph() {
       } finally {
         setIsLoadingResources(false);
       }
+    } else {
+      setSelectedTopicId(null);
     }
   }, [allTopics]);
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-50 text-black">
-      {/* Top Navigation & Search Bar */}
       <div className="p-4 bg-white shadow-sm border-b border-gray-200 z-10 flex gap-4 items-center">
         <h1 className="font-bold text-xl mr-4 whitespace-nowrap">AI Path Generator</h1>
         <form onSubmit={handleGeneratePath} className="flex gap-2 w-full max-w-xl">
@@ -171,7 +180,6 @@ export default function LearningPathGraph() {
         {error && <span className="text-red-500 font-medium text-sm">{error}</span>}
       </div>
 
-      {/* Main Interactive Graph Area */}
       <div className="flex flex-grow overflow-hidden">
         <div className="flex-grow h-full border-r border-gray-200 relative">
           {nodes.length === 0 && !isLoading && !error && (
@@ -179,39 +187,41 @@ export default function LearningPathGraph() {
               Enter a topic above to generate your learning path.
             </div>
           )}
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick}
-            fitView
-          >
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={onNodeClick} fitView>
             <Background color="#ccc" gap={16} />
             <Controls />
             <MiniMap nodeStrokeWidth={3} zoomable pannable />
           </ReactFlow>
         </div>
 
-        {/* Side panel for Phase 5 & 7 (Resources & AI Expansion) */}
         <div className="w-1/3 bg-white shadow-lg overflow-y-auto text-black flex flex-col">
-          <div className="p-6 border-b border-gray-100 bg-gray-50">
+          <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
             <h2 className="text-2xl font-bold">Topic Explorer</h2>
+            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">User ID: {currentUserId}</span>
           </div>
           
           <div className="p-6 flex-grow">
             {selectedTopic ? (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                
-                {/* Topic Header & AI Expand Button */}
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-xl font-bold text-blue-600">{selectedTopic}</h3>
+                </div>
+                
+                {/* Phase 7 & 8 Action Buttons */}
+                <div className="flex gap-2 mb-6">
                   <button 
                     onClick={handleExpandTopic}
                     disabled={isExpanding}
-                    className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1 disabled:opacity-50"
+                    className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1.5 rounded-md hover:bg-purple-200 transition-colors flex-1"
                   >
                     {isExpanding ? '✨ Expanding...' : '✨ Expand with AI'}
+                  </button>
+                  <button 
+                    onClick={handleMarkAsKnown}
+                    disabled={isMarkingKnown || !selectedTopicId}
+                    className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1.5 rounded-md hover:bg-green-200 transition-colors flex-1"
+                  >
+                    {isMarkingKnown ? 'Saving...' : '✅ I know this'}
                   </button>
                 </div>
                 
@@ -224,22 +234,12 @@ export default function LearningPathGraph() {
                 ) : resources.length > 0 ? (
                   <div className="space-y-3">
                     {resources.map((res) => (
-                      <a 
-                        key={res.id} 
-                        href={res.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group"
-                      >
+                      <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group">
                         <div className="flex justify-between items-start mb-1">
-                          <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">
-                            {res.resource_type}
-                          </span>
+                          <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700">{res.resource_type}</span>
                           <span className="text-xs text-gray-500 capitalize">{res.difficulty}</span>
                         </div>
-                        <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
-                          {res.title}
-                        </h5>
+                        <h5 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">{res.title}</h5>
                       </a>
                     ))}
                   </div>
@@ -251,11 +251,8 @@ export default function LearningPathGraph() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center mt-20">
-                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-                  <span className="text-blue-300 text-3xl">👆</span>
-                </div>
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4"><span className="text-blue-300 text-3xl">👆</span></div>
                 <p className="text-gray-500 font-medium">Click on any node in the graph</p>
-                <p className="text-gray-400 text-sm mt-1">to view its learning resources.</p>
               </div>
             )}
           </div>

@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database.database import get_db, engine, Base
 from models import models
-from routes import topics, generator
+
+# 1. ADD 'users' TO THIS IMPORT
+from routes import topics, generator, users
 
 # Create the database tables
 Base.metadata.create_all(bind=engine)
@@ -25,6 +27,8 @@ app.add_middleware(
 
 app.include_router(topics.router)
 app.include_router(generator.router)
+# 2. REGISTER THE USERS ROUTER HERE
+app.include_router(users.router)
 
 @app.get("/")
 def read_root():

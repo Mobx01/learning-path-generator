@@ -33,6 +33,7 @@ class DependencyResponse(DependencyCreate):
 # ==========================================
 class PathRequest(BaseModel):
     topic: str
+    user_id: Optional[int] = None
 
 # ==========================================
 # RESOURCE SCHEMAS (PHASE 5)
@@ -52,3 +53,25 @@ class ResourceResponse(ResourceBase):
 
     class Config:
         from_attributes = True
+
+# ... keep your existing schemas at the top ...
+
+# ==========================================
+# USER SCHEMAS (PHASE 8)
+# ==========================================
+class UserBase(BaseModel):
+    username: str
+    experience_level: Optional[str] = "Beginner"
+    learning_goal: Optional[str] = None
+
+class UserCreate(UserBase):
+    pass
+
+class UserResponse(UserBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+class MarkTopicKnownRequest(BaseModel):
+    topic_id: int
