@@ -30,10 +30,13 @@ export default function LearningPathGraph() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // New states for Phase 5: Resources
+  // States for Phase 5: Resources
   const [allTopics, setAllTopics] = useState<any[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
+
+  // States for Phase 7: AI Topic Expansion
+  const [isExpanding, setIsExpanding] = useState(false);
 
   // Fetch all topics on mount so we can look up their IDs later
   useEffect(() => {
@@ -43,6 +46,7 @@ export default function LearningPathGraph() {
       .catch(err => console.error("Failed to load topics:", err));
   }, []);
 
+  // Generate Initial Graph
   const handleGeneratePath = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -81,6 +85,40 @@ export default function LearningPathGraph() {
       setError(err.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Phase 7: Explicitly Expand an Existing Topic via AI
+  const handleExpandTopic = async () => {
+    if (!selectedTopic) return;
+    
+    setIsExpanding(true);
+    setError(null);
+
+    try {
+      const response = await fetch('http://localhost:8000/expand-topic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: selectedTopic }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to expand topic.");
+      }
+
+      const data = await response.json();
+      const pathArray = Array.isArray(data) ? data : data.path; 
+      
+      // Re-draw the graph with the new hybrid data
+      const { nodes: newNodes, edges: newEdges } = transformPathToGraph(pathArray);
+      setNodes(newNodes);
+      setEdges(newEdges);
+      
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsExpanding(false);
     }
   };
 
@@ -155,7 +193,7 @@ export default function LearningPathGraph() {
           </ReactFlow>
         </div>
 
-        {/* Side panel for Phase 5 (Resources) */}
+        {/* Side panel for Phase 5 & 7 (Resources & AI Expansion) */}
         <div className="w-1/3 bg-white shadow-lg overflow-y-auto text-black flex flex-col">
           <div className="p-6 border-b border-gray-100 bg-gray-50">
             <h2 className="text-2xl font-bold">Topic Explorer</h2>
@@ -164,7 +202,18 @@ export default function LearningPathGraph() {
           <div className="p-6 flex-grow">
             {selectedTopic ? (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                <h3 className="text-xl font-bold text-blue-600 mb-4">{selectedTopic}</h3>
+                
+                {/* Topic Header & AI Expand Button */}
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-xl font-bold text-blue-600">{selectedTopic}</h3>
+                  <button 
+                    onClick={handleExpandTopic}
+                    disabled={isExpanding}
+                    className="bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {isExpanding ? '✨ Expanding...' : '✨ Expand with AI'}
+                  </button>
+                </div>
                 
                 <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Recommended Resources</h4>
                 

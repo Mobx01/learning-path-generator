@@ -36,3 +36,4 @@ class Resource(Base):
 
     # Virtual link back to the parent Topic
     topic = relationship("Topic", back_populates="resources")
+

@@ -37,3 +37,23 @@ def generate_path(request: schemas.PathRequest, db: Session = Depends(get_db)):
         except Exception as ai_e:
             # Fallback if OpenAI fails or parsing fails
             raise HTTPException(status_code=500, detail=f"Failed to generate AI learning path: {str(ai_e)}")
+        
+# POST /expand-topic
+@router.post("/expand-topic")
+def expand_topic(request: schemas.PathRequest, db: Session = Depends(get_db)):
+    """Explicitly triggers AI expansion for an existing node to deepen the hybrid graph."""
+    try:
+        print(f"Force expanding '{request.topic}' via AI...")
+        
+        # 1. Fetch structured hierarchy from Gemini
+        ai_data = generate_ai_topics(request.topic)
+        
+        # 2. Merge with existing PostgreSQL graph (removes duplicates natively)
+        merge_ai_path_into_db(db, ai_data)
+        
+        # 3. Run Kahn's algorithm to get the newly updated, hybrid graph
+        new_path = generate_learning_path(db, request.topic)
+        return new_path
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to expand topic: {str(e)}")
