@@ -18,14 +18,6 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
     # Map IDs to Names for the final output
     id_to_name = {t.topic_id: t.topic_name for t in all_topics}
 
-    # ==========================================
-    # PHASE 8 LOGIC: Fetch user's known topics
-    # ==========================================
-    known_topic_ids = set()
-    if user_id:
-        known_records = db.query(models.UserKnownTopic).filter(models.UserKnownTopic.user_id == user_id).all()
-        known_topic_ids = {record.topic_id for record in known_records}
-
     # 3. Construct directed graph using IDs (Safest method!)
     reverse_adj = defaultdict(list) # Child ID -> Parent IDs (Prerequisites)
     forward_adj = defaultdict(list) # Parent ID -> Child IDs (Next Steps)
@@ -34,7 +26,7 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
         reverse_adj[dep.child_topic_id].append(dep.parent_topic_id)
         forward_adj[dep.parent_topic_id].append(dep.child_topic_id)
 
-# 4. Find all required node IDs using a queue
+    # 4. Find all required node IDs using a queue
     required_ids = set()
     queue = deque([target.topic_id]) # Start the queue using the true ID!
     
@@ -46,19 +38,16 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
             continue
             
         # ==========================================
-        # PHASE 8 PRUNING: If the user already knows this topic,
-        # skip it entirely so it disappears from the graph!
-        # (We keep the target_topic visible so the graph doesn't go blank)
+        # FIX 1: REMOVED PRUNING LOGIC
+        # We no longer skip known topics here. We want them in the graph
+        # so the frontend can color them green!
         # ==========================================
-        if curr_id in known_topic_ids and curr_id != target.topic_id:
-            continue
             
         required_ids.add(curr_id)
         
         # Fetch prerequisites
         for parent_id in reverse_adj[curr_id]:
             queue.append(parent_id)
-
 
     # 5. Cycle Detection & Topological Sorting
     in_degree = {n: 0 for n in required_ids}
@@ -79,9 +68,41 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
                 if in_degree[child_id] == 0:
                     zero_in_degree.append(child_id)
 
-    # ... keep your cycle detection code ...
     if len(topo_order_ids) != len(required_ids):
         raise ValueError("Invalid Graph: Cycle detected in prerequisites!")
+
+    # ==========================================
+    # FIX 2: TRANSITIVE REDUCTION
+    # Cleans up the "meshed up" look by removing redundant shortcut edges 
+    # (e.g., prevents A -> C if A -> B -> C exists)
+    # ==========================================
+    local_adj = {n: [] for n in required_ids}
+    for u in required_ids:
+        for v in forward_adj[u]:
+            if v in required_ids:
+                local_adj[u].append(v)
+
+    redundant_edges = set()
+    
+    for u in required_ids:
+        for v in local_adj[u]:
+            # BFS to find if there's an alternative path from u to v
+            visited = set()
+            # Start search from u's children, explicitly ignoring the direct edge to v
+            alt_queue = deque([child for child in local_adj[u] if child != v])
+            
+            path_found = False
+            while alt_queue:
+                curr = alt_queue.popleft()
+                if curr == v:
+                    path_found = True
+                    break
+                if curr not in visited:
+                    visited.add(curr)
+                    alt_queue.extend(local_adj[curr])
+            
+            if path_found:
+                redundant_edges.add((u, v))
 
     # ==========================================
     # MULTI-BRANCH FIX: Return true nodes & edges
@@ -91,8 +112,8 @@ def generate_learning_path(db: Session, target_topic_name: str, user_id: int = N
     result_edges = []
     for parent_id in required_ids:
         for child_id in forward_adj[parent_id]:
-            # Only include edges that are part of the pruned required path
-            if child_id in required_ids:
+            # Only include edges that are required AND NOT redundant
+            if child_id in required_ids and (parent_id, child_id) not in redundant_edges:
                 result_edges.append({
                     "source": str(parent_id),
                     "target": str(child_id)
