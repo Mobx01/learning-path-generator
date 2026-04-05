@@ -1,10 +1,16 @@
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file
+load_dotenv()
+
 from database.database import get_db, engine, Base
 from models import models
 
-# 1. ADD 'users' TO THIS IMPORT
+# Import your routers
 from routes import topics, generator, users
 
 # Create the database tables
@@ -16,18 +22,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration to allow React to talk to FastAPI
+# Get the frontend URL from environment variables, fallback to localhost for dev
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# CORS configuration to allow the frontend to talk to FastAPI
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
+    allow_origins=[FRONTEND_URL], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Include the routers
 app.include_router(topics.router)
 app.include_router(generator.router)
-# 2. REGISTER THE USERS ROUTER HERE
 app.include_router(users.router)
 
 @app.get("/")

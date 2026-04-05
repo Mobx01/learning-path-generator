@@ -12,6 +12,9 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { transformBranchedGraph } from '../graph/graphTransformers';
 
+// 1. DEFINE THE API URL HERE
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 interface Resource { id: number; title: string; url: string; resource_type: string; difficulty: string; }
 interface Project { id: number; title: string; description: string; difficulty: string; }
 
@@ -42,7 +45,7 @@ export default function LearningPathGraph() {
 
   // 1. Fetch Topics and Completed Topics on Mount
   useEffect(() => {
-    fetch('http://localhost:8000/topics/')
+    fetch(`${API_URL}/topics/`)
       .then(res => res.json())
       .then(data => setAllTopics(data))
       .catch(err => console.error(err));
@@ -52,7 +55,7 @@ export default function LearningPathGraph() {
 
   const fetchCompletedTopics = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics`);
+      const res = await fetch(`${API_URL}/users/${currentUserId}/completed-topics`);
       if (res.ok) {
         const data = await res.json();
         setCompletedTopicIds(data);
@@ -71,7 +74,7 @@ export default function LearningPathGraph() {
     setSelectedTopic(null); setSelectedTopicId(null); setResources([]); setProjects([]);
 
     try {
-      const response = await fetch('http://localhost:8000/generate-path', {
+      const response = await fetch(`${API_URL}/generate-path`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
@@ -143,9 +146,9 @@ export default function LearningPathGraph() {
     const isCurrentlyCompleted = completedTopicIds.includes(selectedTopicId);
     try {
       if (isCurrentlyCompleted) {
-        await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics/${selectedTopicId}`, { method: 'DELETE' });
+        await fetch(`${API_URL}/users/${currentUserId}/completed-topics/${selectedTopicId}`, { method: 'DELETE' });
       } else {
-        await fetch(`http://localhost:8000/users/${currentUserId}/completed-topics`, {
+        await fetch(`${API_URL}/users/${currentUserId}/completed-topics`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic_id: selectedTopicId }),
@@ -164,7 +167,7 @@ export default function LearningPathGraph() {
     if (!selectedTopic) return;
     setIsExpanding(true);
     try {
-      const response = await fetch('http://localhost:8000/expand-topic', {
+      const response = await fetch(`${API_URL}/expand-topic`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
@@ -192,7 +195,7 @@ export default function LearningPathGraph() {
     if (!selectedTopicId) return;
     setIsMarkingKnown(true);
     try {
-      const response = await fetch(`http://localhost:8000/users/${currentUserId}/known-topics`, {
+      const response = await fetch(`${API_URL}/users/${currentUserId}/known-topics`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic_id: selectedTopicId }),
       });
@@ -210,8 +213,8 @@ export default function LearningPathGraph() {
       setIsLoadingData(true);
       try {
         const [resResponse, projResponse] = await Promise.all([
-          fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/resources`),
-          fetch(`http://localhost:8000/topics/${matchedTopic.topic_id}/projects`)
+          fetch(`${API_URL}/topics/${matchedTopic.topic_id}/resources`),
+          fetch(`${API_URL}/topics/${matchedTopic.topic_id}/projects`)
         ]);
         if (resResponse.ok) setResources(await resResponse.json());
         if (projResponse.ok) setProjects(await projResponse.json());
