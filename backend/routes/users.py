@@ -79,3 +79,28 @@ def unmark_topic_completed(user_id: int, topic_id: int, db: Session = Depends(ge
 def get_completed_topics(user_id: int, db: Session = Depends(get_db)):
     completed = db.query(models.UserCompletedTopic).filter(models.UserCompletedTopic.user_id == user_id).all()
     return [c.topic_id for c in completed]
+
+
+# Add this import at the top of routes/users.py
+from services.auth import create_access_token
+
+# Add this route to handle login and token generation
+@router.post("/login")
+def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Find user or create a new one if they don't exist
+    db_user = db.query(models.User).filter(models.User.username == user.username).first()
+    if not db_user:
+        db_user = models.User(username=user.username)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    
+    # Generate the JWT token with their user ID
+    access_token = create_access_token(data={"sub": str(db_user.id)})
+    
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "user_id": db_user.id,
+        "username": db_user.username
+    }
