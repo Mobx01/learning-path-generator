@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database.database import get_db
 from models import models, schemas
 from services.auth import create_access_token
@@ -9,23 +10,29 @@ router = APIRouter(
     tags=["Users"]
 )
 
-# --- NEW HELPER: Prevents Foreign Key Crashes ---
+# --- BULLETPROOF HELPER: Safely inject User 1 ---
 def ensure_user_exists(db: Session, user_id: int):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
-        # Create a dummy user to satisfy the database relationship
-        new_user = models.User(username=f"guest_user_{user_id}")
-        # Note: If your models.User auto-increments IDs, we force it to match the frontend
-        new_user.id = user_id 
-        db.add(new_user)
-        db.commit()
+        print(f"User {user_id} is missing! Attempting to create...")
+        try:
+            # Safely insert the user bypassing SQLAlchemy's auto-increment restrictions
+            db.execute(
+                text("INSERT INTO users (id, username) VALUES (:id, :username) ON CONFLICT (id) DO NOTHING"),
+                {"id": user_id, "username": f"guest_user_{user_id}"}
+            )
+            db.commit()
+            print(f"Successfully created User {user_id}!")
+        except Exception as e:
+            db.rollback()
+            print(f"CRITICAL WARNING: Failed to create User {user_id}. Error: {e}")
 
 # Create a new user
 @router.post("/", response_model=schemas.UserResponse)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     existing_user = db.query(models.User).filter(models.User.username == user.username).first()
     if existing_user:
-        return existing_user # Return existing if they log in again
+        return existing_user 
     
     new_user = models.User(**user.model_dump())
     db.add(new_user)
@@ -36,9 +43,8 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # Mark a topic as known
 @router.post("/{user_id}/known-topics")
 def mark_topic_known(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
-    ensure_user_exists(db, user_id) # <-- THE FIX
+    ensure_user_exists(db, user_id) 
 
-    # Check if already known
     existing = db.query(models.UserKnownTopic).filter(
         models.UserKnownTopic.user_id == user_id,
         models.UserKnownTopic.topic_id == req.topic_id
@@ -64,7 +70,7 @@ def get_known_topics(user_id: int, db: Session = Depends(get_db)):
 # Mark a topic as completed
 @router.post("/{user_id}/completed-topics")
 def mark_topic_completed(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
-    ensure_user_exists(db, user_id) # <-- THE FIX
+    ensure_user_exists(db, user_id) 
 
     existing = db.query(models.UserCompletedTopic).filter(
         models.UserCompletedTopic.user_id == user_id,
@@ -99,7 +105,6 @@ def get_completed_topics(user_id: int, db: Session = Depends(get_db)):
 # Add this route to handle login and token generation
 @router.post("/login")
 def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Find user or create a new one if they don't exist
     db_user = db.query(models.User).filter(models.User.username == user.username).first()
     if not db_user:
         db_user = models.User(username=user.username)
@@ -107,7 +112,6 @@ def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(db_user)
     
-    # Generate the JWT token with their user ID
     access_token = create_access_token(data={"sub": str(db_user.id)})
     
     return {
