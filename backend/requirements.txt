@@ -31,3 +31,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 redis
+
+# --- Rate Limiting (Phase 12.2) ---
+slowapi
+limits
