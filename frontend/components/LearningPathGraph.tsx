@@ -12,7 +12,6 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { transformBranchedGraph } from '../graph/graphTransformers';
 
-// 1. DEFINE THE API URL HERE
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Resource { id: number; title: string; url: string; resource_type: string; difficulty: string; }
@@ -35,35 +34,40 @@ export default function LearningPathGraph() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Phase 7 & 8 States
   const [isExpanding, setIsExpanding] = useState(false);
   const [isMarkingKnown, setIsMarkingKnown] = useState(false);
 
-  // Phase 10 States (Progress)
   const [completedTopicIds, setCompletedTopicIds] = useState<number[]>([]);
   const [isTogglingCompletion, setIsTogglingCompletion] = useState(false);
 
-  // 1. Fetch Topics and Completed Topics on Mount
-  useEffect(() => {
-    fetch(`${API_URL}/topics/`)
-      .then(res => res.json())
-      .then(data => setAllTopics(data))
-      .catch(err => console.error(err));
-
-    fetchCompletedTopics();
-  }, []);
+  // --- NEW: Helper function to refresh topics so we have IDs for newly generated AI nodes ---
+  const fetchAllTopics = async () => {
+    try {
+      const res = await fetch(`${API_URL}/topics/`);
+      if (res.ok) {
+        setAllTopics(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch topics:", err);
+    }
+  };
 
   const fetchCompletedTopics = async () => {
     try {
       const res = await fetch(`${API_URL}/users/${currentUserId}/completed-topics`);
       if (res.ok) {
-        const data = await res.json();
-        setCompletedTopicIds(data);
+        setCompletedTopicIds(await res.json());
       }
     } catch (err) {
       console.error(err);
     }
   };
+
+  // 1. Fetch data on Mount
+  useEffect(() => {
+    fetchAllTopics();
+    fetchCompletedTopics();
+  }, []);
 
   // 2. Generate Path and Style Nodes
   const handleGeneratePath = async (e?: React.FormEvent) => {
@@ -80,19 +84,14 @@ export default function LearningPathGraph() {
         body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to generate path.");
-      }
+      if (!response.ok) throw new Error("Failed to generate path.");
 
       const data = await response.json();
-
-   // Pass the new multi-branched data into the new transformer
       const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
       
-      // Phase 10: Color completed nodes green!
       const styledNodes = newNodes.map(node => {
-        const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+        // Using lowercase matching to be safe
+        const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
         if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
           return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
         }
@@ -101,6 +100,10 @@ export default function LearningPathGraph() {
 
       setNodes(styledNodes);
       setEdges(newEdges);
+      
+      // --- NEW: Immediately fetch topics again so we know the database IDs of the newly created AI topics! ---
+      await fetchAllTopics();
+      
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -108,28 +111,26 @@ export default function LearningPathGraph() {
     }
   };
 
-  // Ensure styling updates if completed topics change while graph is active
   useEffect(() => {
     if (nodes.length > 0) {
       setNodes(nds => nds.map(node => {
-        const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+        const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
         const isComplete = matchedTopic && completedTopicIds.includes(matchedTopic.topic_id);
         return { 
           ...node, 
           style: isComplete 
             ? { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } 
-            : undefined // Reset to default if unmarked
+            : undefined
         };
       }));
     }
   }, [completedTopicIds, allTopics, setNodes]);
 
-  // Phase 10: Calculate Progress Percentage
   const progressStats = useMemo(() => {
     if (nodes.length === 0) return { percent: 0, completed: 0, total: 0 };
     let completedCount = 0;
     nodes.forEach(n => {
-      const matched = allTopics.find(t => t.topic_name === n.data.label);
+      const matched = allTopics.find(t => t.topic_name.toLowerCase() === n.data.label.toLowerCase());
       if (matched && completedTopicIds.includes(matched.topic_id)) completedCount++;
     });
     return {
@@ -142,7 +143,6 @@ export default function LearningPathGraph() {
   const handleToggleCompletion = async () => {
     if (!selectedTopicId) return;
     setIsTogglingCompletion(true);
-    
     const isCurrentlyCompleted = completedTopicIds.includes(selectedTopicId);
     try {
       if (isCurrentlyCompleted) {
@@ -154,7 +154,6 @@ export default function LearningPathGraph() {
           body: JSON.stringify({ topic_id: selectedTopicId }),
         });
       }
-      // Refresh completion list
       await fetchCompletedTopics();
     } catch (err) {
       console.error(err);
@@ -176,9 +175,8 @@ export default function LearningPathGraph() {
         const data = await response.json();
         const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
         
-        // Apply styles to new nodes immediately
         const styledNodes = newNodes.map(node => {
-          const matchedTopic = allTopics.find(t => t.topic_name === node.data.label);
+          const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
           if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
             return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
           }
@@ -187,6 +185,9 @@ export default function LearningPathGraph() {
 
         setNodes(styledNodes);
         setEdges(newEdges);
+        
+        // Refresh topics here too!
+        await fetchAllTopics();
       }
     } catch (err: any) { console.error(err); } finally { setIsExpanding(false); }
   };
@@ -207,7 +208,9 @@ export default function LearningPathGraph() {
     const clickedName = node.data.label;
     setSelectedTopic(clickedName); setResources([]); setProjects([]);
     
-    const matchedTopic = allTopics.find(t => t.topic_name === clickedName);
+    // --- UPDATED: Case-insensitive match, safely finding newly generated topics ---
+    const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === clickedName.toLowerCase());
+    
     if (matchedTopic) {
       setSelectedTopicId(matchedTopic.topic_id);
       setIsLoadingData(true);
@@ -219,7 +222,9 @@ export default function LearningPathGraph() {
         if (resResponse.ok) setResources(await resResponse.json());
         if (projResponse.ok) setProjects(await projResponse.json());
       } catch (err) { console.error(err); } finally { setIsLoadingData(false); }
-    } else { setSelectedTopicId(null); }
+    } else { 
+      setSelectedTopicId(null); 
+    }
   }, [allTopics]);
 
   return (
@@ -258,7 +263,6 @@ export default function LearningPathGraph() {
               <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">User ID: {currentUserId}</span>
             </div>
             
-            {/* PHASE 10: PROGRESS BAR UI */}
             {nodes.length > 0 && (
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-end mb-2">
@@ -281,7 +285,6 @@ export default function LearningPathGraph() {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-2 mb-6">
-                  {/* Phase 10: Completion Toggle Button */}
                   {selectedTopicId && (
                     <button 
                       onClick={handleToggleCompletion}
@@ -313,7 +316,6 @@ export default function LearningPathGraph() {
                   <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
                 ) : (
                   <>
-                    {/* Projects... */}
                     <div className="mb-8">
                       <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-orange-500">🚀</span> Milestone Projects</h4>
                       {projects.length > 0 ? (
@@ -328,7 +330,6 @@ export default function LearningPathGraph() {
                       ) : (<p className="text-sm text-gray-400 italic">No projects added yet.</p>)}
                     </div>
 
-                    {/* Resources... */}
                     <div>
                       <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-blue-500">📚</span> Learning Resources</h4>
                       {resources.length > 0 ? (
