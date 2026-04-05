@@ -11,6 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { transformBranchedGraph } from '../graph/graphTransformers';
+import { useSession, signIn, signOut } from 'next-auth/react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -18,7 +19,13 @@ interface Resource { id: number; title: string; url: string; resource_type: stri
 interface Project { id: number; title: string; description: string; difficulty: string; }
 
 export default function LearningPathGraph() {
-  const currentUserId = 1;
+  // --- NextAuth Integration ---
+  const { data: session, status } = useSession();
+  
+  // Dynamically grab the logged in user ID instead of hardcoding 1
+  const currentUserId = session?.user && (session.user as any).id 
+    ? parseInt((session.user as any).id) 
+    : null;
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -40,7 +47,6 @@ export default function LearningPathGraph() {
   const [completedTopicIds, setCompletedTopicIds] = useState<number[]>([]);
   const [isTogglingCompletion, setIsTogglingCompletion] = useState(false);
 
-  // --- NEW: Helper function to refresh topics so we have IDs for newly generated AI nodes ---
   const fetchAllTopics = async () => {
     try {
       const res = await fetch(`${API_URL}/topics/`);
@@ -53,6 +59,7 @@ export default function LearningPathGraph() {
   };
 
   const fetchCompletedTopics = async () => {
+    if (!currentUserId) return;
     try {
       const res = await fetch(`${API_URL}/users/${currentUserId}/completed-topics`);
       if (res.ok) {
@@ -63,34 +70,36 @@ export default function LearningPathGraph() {
     }
   };
 
-  // 1. Fetch data on Mount
   useEffect(() => {
-    fetchAllTopics();
-    fetchCompletedTopics();
-  }, []);
+    if (currentUserId) {
+      fetchAllTopics();
+      fetchCompletedTopics();
+    }
+  }, [currentUserId]);
 
-  // 2. Generate Path and Style Nodes
   const handleGeneratePath = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() || !currentUserId) return;
 
     setIsLoading(true); setError(null); setNodes([]); setEdges([]);
     setSelectedTopic(null); setSelectedTopicId(null); setResources([]); setProjects([]);
 
     try {
-      const response = await fetch(`${API_URL}/generate-path`, {
+      const response = await fetch(`${API_URL}/generator/generate-path`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
       });
 
-      if (!response.ok) throw new Error("Failed to generate path.");
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || errData.detail || "Failed to generate path.");
+      }
 
       const data = await response.json();
       const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
       
       const styledNodes = newNodes.map(node => {
-        // Using lowercase matching to be safe
         const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
         if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
           return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
@@ -101,7 +110,6 @@ export default function LearningPathGraph() {
       setNodes(styledNodes);
       setEdges(newEdges);
       
-      // --- NEW: Immediately fetch topics again so we know the database IDs of the newly created AI topics! ---
       await fetchAllTopics();
       
     } catch (err: any) {
@@ -141,7 +149,7 @@ export default function LearningPathGraph() {
   }, [nodes, allTopics, completedTopicIds]);
 
   const handleToggleCompletion = async () => {
-    if (!selectedTopicId) return;
+    if (!selectedTopicId || !currentUserId) return;
     setIsTogglingCompletion(true);
     const isCurrentlyCompleted = completedTopicIds.includes(selectedTopicId);
     try {
@@ -163,10 +171,10 @@ export default function LearningPathGraph() {
   };
 
   const handleExpandTopic = async () => {
-    if (!selectedTopic) return;
+    if (!selectedTopic || !currentUserId) return;
     setIsExpanding(true);
     try {
-      const response = await fetch(`${API_URL}/expand-topic`, {
+      const response = await fetch(`${API_URL}/generator/expand-topic`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
@@ -185,15 +193,13 @@ export default function LearningPathGraph() {
 
         setNodes(styledNodes);
         setEdges(newEdges);
-        
-        // Refresh topics here too!
         await fetchAllTopics();
       }
     } catch (err: any) { console.error(err); } finally { setIsExpanding(false); }
   };
 
   const handleMarkAsKnown = async () => {
-    if (!selectedTopicId) return;
+    if (!selectedTopicId || !currentUserId) return;
     setIsMarkingKnown(true);
     try {
       const response = await fetch(`${API_URL}/users/${currentUserId}/known-topics`, {
@@ -208,7 +214,6 @@ export default function LearningPathGraph() {
     const clickedName = node.data.label;
     setSelectedTopic(clickedName); setResources([]); setProjects([]);
     
-    // --- UPDATED: Case-insensitive match, safely finding newly generated topics ---
     const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === clickedName.toLowerCase());
     
     if (matchedTopic) {
@@ -227,17 +232,51 @@ export default function LearningPathGraph() {
     }
   }, [allTopics]);
 
+  // --- Auth Wall Render ---
+  if (status === "loading") {
+    return <div className="flex items-center justify-center h-screen bg-slate-50 text-black">Loading...</div>;
+  }
+
+  if (status === "unauthenticated" || !currentUserId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-slate-50 text-black">
+        <h2 className="text-2xl font-bold mb-4">AI Learning Path Generator</h2>
+        <p className="mb-6 text-gray-600">You must be logged in to view and generate your learning paths.</p>
+        <button 
+          onClick={() => signIn()} 
+          className="px-6 py-2 text-white bg-blue-600 hover:bg-blue-700 font-bold rounded-md transition-colors"
+        >
+          Log In
+        </button>
+      </div>
+    );
+  }
+
+  // --- Main App Render ---
   return (
     <div className="flex flex-col h-screen w-full bg-slate-50 text-black">
-      <div className="p-4 bg-white shadow-sm border-b border-gray-200 z-10 flex gap-4 items-center">
-        <h1 className="font-bold text-xl mr-4 whitespace-nowrap">AI Path Generator</h1>
-        <form onSubmit={handleGeneratePath} className="flex gap-2 w-full max-w-xl">
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="What do you want to learn?" className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-          <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
-            {isLoading ? 'Generating...' : 'Generate Graph'}
+      <div className="p-4 bg-white shadow-sm border-b border-gray-200 z-10 flex gap-4 items-center justify-between">
+        <div className="flex items-center gap-4 flex-grow">
+          <h1 className="font-bold text-xl mr-4 whitespace-nowrap">AI Path Generator</h1>
+          <form onSubmit={handleGeneratePath} className="flex gap-2 w-full max-w-xl">
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="What do you want to learn?" className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+            <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+              {isLoading ? 'Generating...' : 'Generate Graph'}
+            </button>
+          </form>
+          {error && <span className="text-red-500 font-medium text-sm">{error}</span>}
+        </div>
+        
+        {/* User Menu / Logout */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600 font-medium">Hello, {session?.user?.name}</span>
+          <button 
+            onClick={() => signOut()} 
+            className="text-sm bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-1.5 rounded-md transition-colors"
+          >
+            Sign Out
           </button>
-        </form>
-        {error && <span className="text-red-500 font-medium text-sm">{error}</span>}
+        </div>
       </div>
 
       <div className="flex flex-grow overflow-hidden">
@@ -260,7 +299,7 @@ export default function LearningPathGraph() {
           <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col gap-4">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold">Dashboard</h2>
-              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">User ID: {currentUserId}</span>
+              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">User ID: {currentUserId}</span>
             </div>
             
             {nodes.length > 0 && (
