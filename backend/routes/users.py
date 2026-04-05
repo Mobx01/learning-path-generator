@@ -2,11 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database.database import get_db
 from models import models, schemas
+from services.auth import create_access_token
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"]
 )
+
+# --- NEW HELPER: Prevents Foreign Key Crashes ---
+def ensure_user_exists(db: Session, user_id: int):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        # Create a dummy user to satisfy the database relationship
+        new_user = models.User(username=f"guest_user_{user_id}")
+        # Note: If your models.User auto-increments IDs, we force it to match the frontend
+        new_user.id = user_id 
+        db.add(new_user)
+        db.commit()
 
 # Create a new user
 @router.post("/", response_model=schemas.UserResponse)
@@ -24,6 +36,8 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # Mark a topic as known
 @router.post("/{user_id}/known-topics")
 def mark_topic_known(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
+    ensure_user_exists(db, user_id) # <-- THE FIX
+
     # Check if already known
     existing = db.query(models.UserKnownTopic).filter(
         models.UserKnownTopic.user_id == user_id,
@@ -50,6 +64,8 @@ def get_known_topics(user_id: int, db: Session = Depends(get_db)):
 # Mark a topic as completed
 @router.post("/{user_id}/completed-topics")
 def mark_topic_completed(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
+    ensure_user_exists(db, user_id) # <-- THE FIX
+
     existing = db.query(models.UserCompletedTopic).filter(
         models.UserCompletedTopic.user_id == user_id,
         models.UserCompletedTopic.topic_id == req.topic_id
@@ -79,10 +95,6 @@ def unmark_topic_completed(user_id: int, topic_id: int, db: Session = Depends(ge
 def get_completed_topics(user_id: int, db: Session = Depends(get_db)):
     completed = db.query(models.UserCompletedTopic).filter(models.UserCompletedTopic.user_id == user_id).all()
     return [c.topic_id for c in completed]
-
-
-# Add this import at the top of routes/users.py
-from services.auth import create_access_token
 
 # Add this route to handle login and token generation
 @router.post("/login")
