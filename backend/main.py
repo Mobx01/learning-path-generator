@@ -22,13 +22,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Get the frontend URL from environment variables, fallback to localhost for dev
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+# --- THE FIX: Clean the URL and provide multiple safe fallbacks ---
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
-# CORS configuration to allow the frontend to talk to FastAPI
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL], 
+    # Allow the exact frontend URL, plus localhost for your own testing
+    allow_origins=[FRONTEND_URL, "http://localhost:3000"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -30,13 +30,15 @@ class AILearningPath(BaseModel):
 def generate_ai_topics(target_topic: str) -> AILearningPath:
     """Sends a topic prompt to the Gemini API and parses it into a structured hierarchy."""
     
+    # --- THE FIX: We explicitly tell Gemini to generate AT LEAST 12-15 topics ---
     prompt = f"""
-    Generate a comprehensive prerequisite learning path required to master '{target_topic}'.
+    Generate a highly detailed, comprehensive prerequisite learning path required to master '{target_topic}'.
     Return the result as a structured list of topics and their dependencies.
+    Include at least 12 to 15 distinct topics to ensure a deep, multi-level learning graph.
     Make sure to include '{target_topic}' itself as the final topic in the list.
     """
     
-    # Use gemini-1.5-flash as it is lightning fast and perfect for this task
+    # Use gemini-1.5-flash (or 2.5-flash if available to you)
     model = genai.GenerativeModel('gemini-2.5-flash')
     
     # Enforce strict JSON output matching our Pydantic schema
@@ -106,7 +108,6 @@ class AIProjectList(BaseModel):
 def generate_ai_projects(topic_name: str) -> AIProjectList:
     """Generates practical milestone projects for a specific topic using Gemini."""
     
-    # FIX: Corrected the prompt to ask for projects, and fixed the variable name.
     prompt = f"""
     Generate a list of 3 to 5 practical, portfolio-worthy milestone projects 
     that a student could build to master the topic '{topic_name}'.
