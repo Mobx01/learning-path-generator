@@ -25,6 +25,9 @@ tqdm==4.67.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.42.0
+
+# --- Auth & Caching Packages ---
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+redis
