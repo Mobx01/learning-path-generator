@@ -19,10 +19,8 @@ interface Resource { id: number; title: string; url: string; resource_type: stri
 interface Project { id: number; title: string; description: string; difficulty: string; }
 
 export default function LearningPathGraph() {
-  // --- NextAuth Integration ---
   const { data: session, status } = useSession();
   
-  // Cleanly parse user ID and ensure it doesn't default to NaN
   const currentUserId = useMemo(() => {
     const id = (session?.user as any)?.id;
     if (!id) return null;
@@ -32,7 +30,6 @@ export default function LearningPathGraph() {
 
   const token = (session as any)?.accessToken;
 
-  // Login form local states
   const [loginUsername, setLoginUsername] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -57,42 +54,25 @@ export default function LearningPathGraph() {
   const [completedTopicIds, setCompletedTopicIds] = useState<number[]>([]);
   const [isTogglingCompletion, setIsTogglingCompletion] = useState(false);
 
-  // Helper function to attach validation headers safely
   const getHeaders = useCallback(() => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
   }, [token]);
 
   const fetchAllTopics = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/topics/`, { 
-        headers: getHeaders() 
-      });
-      if (res.ok) {
-        setAllTopics(await res.json());
-      }
-    } catch (err) {
-      console.error("Failed to fetch topics:", err);
-    }
+      const res = await fetch(`${API_URL}/topics/`, { headers: getHeaders() });
+      if (res.ok) setAllTopics(await res.json());
+    } catch (err) { console.error(err); }
   }, [getHeaders]);
 
   const fetchCompletedTopics = useCallback(async () => {
     if (!currentUserId || !token) return;
     try {
-      const res = await fetch(`${API_URL}/users/${currentUserId}/completed-topics`, {
-        headers: getHeaders()
-      });
-      if (res.ok) {
-        setCompletedTopicIds(await res.json());
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      const res = await fetch(`${API_URL}/users/${currentUserId}/completed-topics`, { headers: getHeaders() });
+      if (res.ok) setCompletedTopicIds(await res.json());
+    } catch (err) { console.error(err); }
   }, [currentUserId, token, getHeaders]);
 
   useEffect(() => {
@@ -102,48 +82,33 @@ export default function LearningPathGraph() {
     }
   }, [currentUserId, token, fetchAllTopics, fetchCompletedTopics]);
 
-  // Handle inline credential submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginUsername.trim()) return;
-
-    setIsLoggingIn(true);
-    setLoginError(null);
-
+    setIsLoggingIn(true); setLoginError(null);
     try {
-      const result = await signIn("credentials", {
-        username: loginUsername.trim(),
-        redirect: false, // Prevents NextAuth from forcefully reloading/redirecting the window
-      });
-
-      if (result?.error) {
-        setLoginError("Sign in failed. Could not establish a connection to the profile server.");
-      }
-    } catch (err) {
-      setLoginError("An unexpected login error occurred.");
-    } finally {
-      setIsLoggingIn(false);
-    }
+      const result = await signIn("credentials", { username: loginUsername.trim(), redirect: false });
+      if (result?.error) setLoginError("Connection failed. Check frequency tuner.");
+    } catch (err) { setLoginError("System malfunction."); } 
+    finally { setIsLoggingIn(false); }
   };
 
   const handleGeneratePath = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim() || !currentUserId || !token) return;
-
     setIsLoading(true); setError(null); setNodes([]); setEdges([]);
     setSelectedTopic(null); setSelectedTopicId(null); setResources([]); setProjects([]);
 
     try {
       const response = await fetch(`${API_URL}/generator/generate-path`, {
-        method: 'POST',
-        headers: getHeaders(),
+        method: 'POST', headers: getHeaders(),
         body: JSON.stringify({ topic: searchQuery, user_id: currentUserId }),
       });
 
       if (!response.ok) {
-        if (response.status === 401) throw new Error("Unauthorized - Please log in again");
+        if (response.status === 401) throw new Error("Unauthorized access.");
         const errData = await response.json();
-        throw new Error(errData.error || errData.detail || "Failed to generate path.");
+        throw new Error(errData.error || errData.detail || "Failed to parse roadmap.");
       }
 
       const data = await response.json();
@@ -152,20 +117,14 @@ export default function LearningPathGraph() {
       const styledNodes = newNodes.map(node => {
         const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
         if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
-          return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
+          return { ...node, style: { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } };
         }
-        return node;
+        return { ...node, style: { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' } };
       });
 
-      setNodes(styledNodes);
-      setEdges(newEdges);
-      await fetchAllTopics();
-      
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
+      setNodes(styledNodes); setEdges(newEdges); await fetchAllTopics();
+    } catch (err: any) { setError(err.message); } 
+    finally { setIsLoading(false); }
   };
 
   useEffect(() => {
@@ -176,8 +135,8 @@ export default function LearningPathGraph() {
         return { 
           ...node, 
           style: isComplete 
-            ? { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } 
-            : undefined
+            ? { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } 
+            : { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' }
         };
       }));
     }
@@ -190,11 +149,7 @@ export default function LearningPathGraph() {
       const matched = allTopics.find(t => t.topic_name.toLowerCase() === n.data.label.toLowerCase());
       if (matched && completedTopicIds.includes(matched.topic_id)) completedCount++;
     });
-    return {
-      percent: Math.round((completedCount / nodes.length) * 100),
-      completed: completedCount,
-      total: nodes.length
-    };
+    return { percent: Math.round((completedCount / nodes.length) * 100), completed: completedCount, total: nodes.length };
   }, [nodes, allTopics, completedTopicIds]);
 
   const handleToggleCompletion = async () => {
@@ -203,49 +158,30 @@ export default function LearningPathGraph() {
     const isCurrentlyCompleted = completedTopicIds.includes(selectedTopicId);
     try {
       if (isCurrentlyCompleted) {
-        await fetch(`${API_URL}/users/${currentUserId}/completed-topics/${selectedTopicId}`, { 
-          method: 'DELETE',
-          headers: getHeaders()
-        });
+        await fetch(`${API_URL}/users/${currentUserId}/completed-topics/${selectedTopicId}`, { method: 'DELETE', headers: getHeaders() });
       } else {
-        await fetch(`${API_URL}/users/${currentUserId}/completed-topics`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ topic_id: selectedTopicId }),
-        });
+        await fetch(`${API_URL}/users/${currentUserId}/completed-topics`, { method: 'POST', headers: getHeaders(), body: JSON.stringify({ topic_id: selectedTopicId }) });
       }
       await fetchCompletedTopics();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsTogglingCompletion(false);
-    }
+    } catch (err) { console.error(err); } finally { setIsTogglingCompletion(false); }
   };
 
   const handleExpandTopic = async () => {
     if (!selectedTopic || !currentUserId || !token) return;
     setIsExpanding(true);
     try {
-      const response = await fetch(`${API_URL}/generator/expand-topic`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }),
-      });
+      const response = await fetch(`${API_URL}/generator/expand-topic`, { method: 'POST', headers: getHeaders(), body: JSON.stringify({ topic: selectedTopic, user_id: currentUserId }) });
       if (response.ok) {
         const data = await response.json();
         const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
-        
         const styledNodes = newNodes.map(node => {
           const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
           if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
-            return { ...node, style: { backgroundColor: '#dcfce7', border: '2px solid #22c55e', color: '#166534', fontWeight: 'bold' } };
+            return { ...node, style: { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } };
           }
-          return node;
+          return { ...node, style: { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' } };
         });
-
-        setNodes(styledNodes);
-        setEdges(newEdges);
-        await fetchAllTopics();
+        setNodes(styledNodes); setEdges(newEdges); await fetchAllTopics();
       }
     } catch (err: any) { console.error(err); } finally { setIsExpanding(false); }
   };
@@ -254,11 +190,7 @@ export default function LearningPathGraph() {
     if (!selectedTopicId || !currentUserId || !token) return;
     setIsMarkingKnown(true);
     try {
-      const response = await fetch(`${API_URL}/users/${currentUserId}/known-topics`, {
-        method: 'POST', 
-        headers: getHeaders(),
-        body: JSON.stringify({ topic_id: selectedTopicId }),
-      });
+      const response = await fetch(`${API_URL}/users/${currentUserId}/known-topics`, { method: 'POST', headers: getHeaders(), body: JSON.stringify({ topic_id: selectedTopicId }) });
       if (response.ok) await handleGeneratePath();
     } catch (err) { console.error(err); } finally { setIsMarkingKnown(false); }
   };
@@ -266,9 +198,7 @@ export default function LearningPathGraph() {
   const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
     const clickedName = node.data.label;
     setSelectedTopic(clickedName); setResources([]); setProjects([]);
-    
     const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === clickedName.toLowerCase());
-    
     if (matchedTopic && token) {
       setSelectedTopicId(matchedTopic.topic_id);
       setIsLoadingData(true);
@@ -280,45 +210,51 @@ export default function LearningPathGraph() {
         if (resResponse.ok) setResources(await resResponse.json());
         if (projResponse.ok) setProjects(await projResponse.json());
       } catch (err) { console.error(err); } finally { setIsLoadingData(false); }
-    } else { 
-      setSelectedTopicId(null); 
-    }
+    } else { setSelectedTopicId(null); }
   }, [allTopics, token, getHeaders]);
+
+  // Base background style used across screens
+  const darkRadialBg = "bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-700 via-[#1a1c23] to-[#0f1115]";
 
   // --- Auth Loading Wall ---
   if (status === "loading") {
-    return <div className="flex items-center justify-center h-screen bg-slate-50 text-black">Loading...</div>;
+    return <div className={`flex items-center justify-center h-screen ${darkRadialBg} text-slate-300 font-mono tracking-widest uppercase`}>Calibrating UI...</div>;
   }
 
-  // --- Beautiful Inline Form Auth Wall ---
+  // --- Glass & Skeuomorphic Auth Wall ---
   if (status === "unauthenticated") {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50 text-black p-4">
-        <form onSubmit={handleLoginSubmit} className="bg-white p-8 rounded-xl shadow-md border border-gray-200 max-w-sm w-full">
-          <h2 className="text-2xl font-bold mb-2 text-center text-blue-600">AI Learning Roadmap</h2>
-          <p className="mb-6 text-sm text-gray-500 text-center">Enter your username to access your secure developer profile.</p>
+      <div className={`flex flex-col items-center justify-center h-screen ${darkRadialBg} p-4`}>
+        <form onSubmit={handleLoginSubmit} className="bg-white/5 backdrop-blur-2xl p-8 rounded-3xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] max-w-sm w-full relative">
           
-          <div className="mb-4">
-            <label className="block text-xs font-bold text-gray-400 uppercase mb-2 tracking-wide">Username</label>
+          <div className="absolute top-4 left-4 flex gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0_5px_rgba(239,68,68,0.5)]"></div>
+            <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0_5px_rgba(234,179,8,0.5)]"></div>
+          </div>
+
+          <h2 className="text-2xl font-bold mt-4 mb-2 text-center text-slate-200 tracking-wider">SYSTEM LOGIN</h2>
+          <p className="mb-8 text-xs text-slate-400 text-center font-mono uppercase tracking-widest">Awaiting Operator ID</p>
+          
+          <div className="mb-6">
             <input 
               type="text" 
               value={loginUsername} 
               onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder="e.g., testuser" 
-              className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm"
+              placeholder="e.g., operator_01" 
+              className="w-full p-3 bg-black/60 border-t border-black/80 border-b border-white/10 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 shadow-[inset_0_3px_6px_rgba(0,0,0,0.8)] text-emerald-400 placeholder-slate-600 text-sm font-mono tracking-wider transition-all"
               required
               disabled={isLoggingIn}
             />
           </div>
 
-          {loginError && <p className="text-red-500 text-xs font-semibold mb-4 text-center">{loginError}</p>}
+          {loginError && <p className="text-red-400 text-xs font-mono mb-4 text-center">{loginError}</p>}
 
           <button 
             type="submit"
             disabled={isLoggingIn}
-            className="w-full py-2.5 text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 font-bold rounded-md transition-colors shadow-sm text-sm"
+            className="w-full py-3 rounded-xl font-bold text-gray-800 tracking-widest uppercase text-xs transition-all active:translate-y-[4px] bg-gradient-to-b from-[#f0f0f0] to-[#c0c0c0] border border-[#a0a0a0] shadow-[inset_0_1px_1px_rgba(255,255,255,1),0_4px_0_#808080,0_6px_15px_rgba(0,0,0,0.6)] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#808080,0_1px_2px_rgba(0,0,0,0.5)] disabled:opacity-50"
           >
-            {isLoggingIn ? 'Verifying Account...' : 'Sign In / Register'}
+            {isLoggingIn ? 'Engaging...' : 'Engage System'}
           </button>
         </form>
       </div>
@@ -327,67 +263,87 @@ export default function LearningPathGraph() {
 
   // --- Main App Render ---
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-50 text-black">
-      <div className="p-4 bg-white shadow-sm border-b border-gray-200 z-10 flex gap-4 items-center justify-between">
+    <div className={`flex flex-col h-screen w-full ${darkRadialBg} text-slate-200 overflow-hidden`}>
+      
+      {/* HEADER: Glassmorphic Panel */}
+      <div className="p-4 bg-white/5 backdrop-blur-xl border-b border-white/10 z-30 flex gap-4 items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
         <div className="flex items-center gap-4 flex-grow">
-          <h1 className="font-bold text-xl mr-4 whitespace-nowrap">AI Path Generator</h1>
-          <form onSubmit={handleGeneratePath} className="flex gap-2 w-full max-w-xl">
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="What do you want to learn?" className="flex-grow p-2 border border-gray-300 rounded-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-            <button type="submit" disabled={isLoading || !currentUserId} className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
-              {isLoading ? 'Generating...' : 'Generate Graph'}
+          <h1 className="font-bold text-xl mr-4 whitespace-nowrap tracking-wider text-slate-100 flex items-center gap-3">
+            <div className="w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8),inset_0_1px_2px_rgba(255,255,255,0.8)]"></div>
+            A.I. MATRIX
+          </h1>
+          
+          <form onSubmit={handleGeneratePath} className="flex gap-4 w-full max-w-2xl items-center">
+            {/* Skeuomorphic Recessed Input */}
+            <input 
+              type="text" 
+              value={searchQuery} 
+              onChange={(e) => setSearchQuery(e.target.value)} 
+              placeholder="Enter target coordinates (e.g. Python)..." 
+              className="flex-grow p-2.5 bg-black/50 border-t border-black/80 border-b border-white/10 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 shadow-[inset_0_3px_6px_rgba(0,0,0,0.6)] text-emerald-100 placeholder-slate-600 font-mono text-sm transition-all" 
+            />
+            
+            {/* Retro Mechanical Button */}
+            <button 
+              type="submit" 
+              disabled={isLoading || !currentUserId} 
+              className="px-6 py-2.5 rounded-lg font-bold text-gray-800 tracking-wider uppercase text-xs transition-all active:translate-y-[4px] bg-gradient-to-b from-[#f0f0f0] to-[#c0c0c0] border border-[#a0a0a0] shadow-[inset_0_1px_1px_rgba(255,255,255,1),0_4px_0_#808080,0_5px_10px_rgba(0,0,0,0.5)] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#808080,0_1px_2px_rgba(0,0,0,0.5)] disabled:opacity-50"
+            >
+              {isLoading ? 'Scanning...' : 'Transmit'}
             </button>
           </form>
-          {error && <span className="text-red-500 font-medium text-sm">{error}</span>}
-          {!currentUserId && <span className="text-amber-500 font-medium text-sm">Initializing user profile...</span>}
+
+          {error && <span className="text-red-400 font-mono text-xs uppercase ml-4">{error}</span>}
         </div>
         
-        {/* User Menu / Logout */}
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600 font-medium">Hello, {session?.user?.name}</span>
+        {/* User Menu */}
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-slate-400 font-mono uppercase tracking-widest">OP: {session?.user?.name}</span>
           <button 
             onClick={() => signOut()} 
-            className="text-sm bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-1.5 rounded-md transition-colors font-semibold"
+            className="w-8 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600 border border-red-800 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_3px_0_#7f1d1d,0_4px_5px_rgba(0,0,0,0.5)] active:translate-y-[3px] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#7f1d1d,0_1px_2px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all"
+            title="Eject"
           >
-            Sign Out
+            <span className="block w-3 h-3 border-2 border-white rounded-full"></span>
           </button>
         </div>
       </div>
 
-      <div className="flex flex-grow overflow-hidden">
+      <div className="flex flex-grow overflow-hidden relative">
         {/* GRAPH AREA */}
-        <div className="flex-grow h-full border-r border-gray-200 relative bg-slate-100">
+        <div className="flex-grow h-full relative z-0">
           {nodes.length === 0 && !isLoading && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">
-              Enter a topic above to generate your learning path.
+            <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-mono uppercase tracking-widest pointer-events-none z-10">
+              Awaiting transmission...
             </div>
           )}
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={onNodeClick} fitView>
-            <Background color="#ccc" gap={16} />
-            <Controls />
-            <MiniMap nodeStrokeWidth={3} zoomable pannable />
+            <Background color="#334155" gap={20} size={2} />
+            <Controls className="bg-slate-800 border-slate-600 fill-slate-200 shadow-lg" />
+            <MiniMap nodeStrokeWidth={3} zoomable pannable className="bg-slate-900 border border-slate-700" maskColor="rgba(15, 23, 42, 0.7)" />
           </ReactFlow>
         </div>
 
-        {/* SIDE PANEL */}
-        <div className="w-1/3 bg-white shadow-lg overflow-y-auto text-black flex flex-col z-20">
-          <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col gap-4">
+        {/* SIDE PANEL: Glassmorphic with Recessed Modules */}
+        <div className="w-1/3 bg-black/30 backdrop-blur-2xl border-l border-white/10 shadow-[-10px_0_30px_rgba(0,0,0,0.5)] overflow-y-auto flex flex-col z-20">
+          
+          <div className="p-6 border-b border-white/5 bg-white/5 flex flex-col gap-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Dashboard</h2>
-              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium shadow-sm">
-                User ID: {currentUserId || 'Loading...'}
-              </span>
+              <h2 className="text-xl font-bold tracking-widest uppercase text-slate-200">Telemetry</h2>
+              <span className="text-[10px] bg-black/50 text-emerald-400 px-2 py-1 rounded border border-emerald-900 font-mono shadow-inner">ID: {currentUserId}</span>
             </div>
             
             {nodes.length > 0 && (
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <div className="flex justify-between items-end mb-2">
-                  <span className="text-sm font-bold text-gray-600">Learning Progress</span>
-                  <span className="text-xl font-black text-green-600">{progressStats.percent}%</span>
+              <div className="bg-black/40 p-4 rounded-xl shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-white/5">
+                <div className="flex justify-between items-end mb-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sector Progress</span>
+                  <span className="text-lg font-black text-emerald-400 font-mono">{progressStats.percent}%</span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2.5 mb-1">
-                  <div className="bg-green-500 h-2.5 rounded-full transition-all duration-500 ease-in-out" style={{ width: `${progressStats.percent}%` }}></div>
+                {/* Glowing LED Progress Bar inside Recessed Track */}
+                <div className="w-full bg-black/80 rounded-full h-3.5 mb-2 shadow-[inset_0_2px_4px_rgba(0,0,0,0.8)] border border-white/5 p-0.5">
+                  <div className="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full rounded-full transition-all duration-500 ease-in-out shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ width: `${progressStats.percent}%` }}></div>
                 </div>
-                <span className="text-xs text-gray-400 font-medium">{progressStats.completed} of {progressStats.total} modules completed</span>
+                <span className="text-[10px] text-slate-500 font-mono uppercase">{progressStats.completed} / {progressStats.total} modules synced</span>
               </div>
             )}
           </div>
@@ -395,75 +351,75 @@ export default function LearningPathGraph() {
           <div className="p-6 flex-grow">
             {selectedTopic ? (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold text-blue-700">{selectedTopic}</h3>
-                </div>
+                <h3 className="text-2xl font-bold text-emerald-100 mb-6 font-mono border-b border-white/10 pb-2 shadow-[0_1px_0_rgba(0,0,0,0.5)]">{selectedTopic}</h3>
                 
-                <div className="grid grid-cols-2 gap-2 mb-6">
+                <div className="grid grid-cols-2 gap-3 mb-8">
                   {selectedTopicId && (
                     <button 
                       onClick={handleToggleCompletion}
                       disabled={isTogglingCompletion || !currentUserId}
-                      className={`col-span-2 py-2 rounded-md font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
+                      className={`col-span-2 py-3 rounded-lg font-bold tracking-wider uppercase text-xs transition-all active:translate-y-[3px] border ${
                         completedTopicIds.includes(selectedTopicId)
-                        ? 'bg-green-600 text-white hover:bg-green-700 shadow-inner'
-                        : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-                      }`}
+                        ? 'bg-gradient-to-b from-[#10b981] to-[#047857] border-[#064e3b] shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_4px_0_#022c22,0_5px_10px_rgba(0,0,0,0.5)] text-white'
+                        : 'bg-gradient-to-b from-[#334155] to-[#1e293b] border-[#0f172a] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_0_#020617,0_5px_10px_rgba(0,0,0,0.5)] text-emerald-400'
+                      } active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#020617,0_1px_2px_rgba(0,0,0,0.5)]`}
                     >
-                      {completedTopicIds.includes(selectedTopicId) ? '🏆 Completed! (Click to Undo)' : '✔️ Mark as Completed'}
+                      {completedTopicIds.includes(selectedTopicId) ? '✓ Node Secured' : 'Lock Node'}
                     </button>
                   )}
                   <button 
                     onClick={handleExpandTopic} disabled={isExpanding || !currentUserId}
-                    className="bg-purple-100 text-purple-800 text-xs font-bold px-3 py-2 rounded-md hover:bg-purple-200 transition-colors shadow-sm"
+                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#6366f1] to-[#4338ca] border-[#312e81] shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_4px_0_#1e1b4b,0_5px_10px_rgba(0,0,0,0.5)] text-white active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#1e1b4b,0_1px_2px_rgba(0,0,0,0.5)]"
                   >
-                    {isExpanding ? '✨ Expanding...' : '✨ Deepen via AI'}
+                    {isExpanding ? 'Routing...' : 'Deep Scan'}
                   </button>
                   <button 
                     onClick={handleMarkAsKnown} disabled={isMarkingKnown || !selectedTopicId || !currentUserId}
-                    className="bg-gray-100 text-gray-700 text-xs font-bold px-3 py-2 rounded-md hover:bg-gray-200 transition-colors shadow-sm"
+                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#475569] to-[#334155] border-[#1e293b] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_0_#0f172a,0_5px_10px_rgba(0,0,0,0.5)] text-slate-300 active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#0f172a,0_1px_2px_rgba(0,0,0,0.5)]"
                   >
-                    {isMarkingKnown ? 'Pruning...' : '✂️ Prune Node'}
+                    {isMarkingKnown ? 'Purging...' : 'Purge Node'}
                   </button>
                 </div>
                 
                 {isLoadingData ? (
-                  <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+                  <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div></div>
                 ) : (
                   <>
                     <div className="mb-8">
-                      <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-orange-500">🚀</span> Milestone Projects</h4>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_5px_#f59e0b]"></span> Objectives</h4>
                       {projects.length > 0 ? (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {projects.map((proj) => (
-                            <div key={proj.id} className="p-4 rounded-lg border border-orange-200 bg-orange-50 shadow-sm">
-                              <div className="flex justify-between items-start mb-2"><h5 className="font-bold text-orange-900">{proj.title}</h5></div>
-                              {proj.description && <p className="text-sm text-gray-700 leading-relaxed">{proj.description}</p>}
+                            <div key={proj.id} className="p-4 rounded-xl border border-white/5 bg-black/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_4px_6px_rgba(0,0,0,0.3)] hover:border-amber-500/30 transition-colors">
+                              <h5 className="font-bold text-amber-400 text-sm mb-2">{proj.title}</h5>
+                              {proj.description && <p className="text-xs text-slate-300 leading-relaxed opacity-80">{proj.description}</p>}
                             </div>
                           ))}
                         </div>
-                      ) : (<p className="text-sm text-gray-400 italic font-medium">No projects added yet.</p>)}
+                      ) : (<p className="text-xs text-slate-600 font-mono italic">No objectives assigned.</p>)}
                     </div>
 
                     <div>
-                      <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="text-blue-500">📚</span> Learning Resources</h4>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_5px_#3b82f6]"></span> Data Logs</h4>
                       {resources.length > 0 ? (
                         <div className="space-y-3">
                           {resources.map((res) => (
-                            <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-white group">
-                              <h5 className="font-semibold text-gray-800 group-hover:text-blue-600 transition-colors">{res.title}</h5>
+                            <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-xl border border-white/5 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.2)] hover:bg-white/10 hover:border-blue-400/50 transition-all group">
+                              <h5 className="font-medium text-slate-200 text-sm group-hover:text-blue-400 transition-colors">{res.title}</h5>
                             </a>
                           ))}
                         </div>
-                      ) : (<p className="text-sm text-gray-400 italic font-medium">No resources added yet.</p>)}
+                      ) : (<p className="text-xs text-slate-600 font-mono italic">No data logs found.</p>)}
                     </div>
                   </>
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center mt-20">
-                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4"><span className="text-blue-400 text-3xl">👆</span></div>
-                <p className="text-gray-500 font-medium">Click on any node in the graph</p>
+              <div className="flex flex-col items-center justify-center h-full text-center mt-10">
+                <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_5px_rgba(0,0,0,0.5)] border border-white/5">
+                  <div className="w-4 h-4 rounded-full bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"></div>
+                </div>
+                <p className="text-slate-500 font-mono text-xs tracking-widest uppercase">Select Node for Analysis</p>
               </div>
             )}
           </div>
