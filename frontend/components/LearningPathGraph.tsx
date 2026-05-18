@@ -8,6 +8,7 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   NodeMouseHandler,
+  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { transformBranchedGraph } from '../graph/graphTransformers';
@@ -93,6 +94,37 @@ export default function LearningPathGraph() {
     finally { setIsLoggingIn(false); }
   };
 
+  // Centralized Node Styling Function
+  const styleNodes = useCallback((rawNodes: any[]) => {
+    return rawNodes.map(node => {
+      const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
+      const isComplete = matchedTopic && completedTopicIds.includes(matchedTopic.topic_id);
+      const isSelected = matchedTopic && matchedTopic.topic_id === selectedTopicId;
+
+      let style = { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc', transition: 'all 0.3s ease' };
+      
+      if (isSelected) {
+        // Active Target Lock (Glowing Amber)
+        style = { ...style, backgroundColor: '#451a03', border: '2px solid #f59e0b', color: '#fde68a', boxShadow: '0 0 20px rgba(245, 158, 11, 0.6)' };
+      } else if (isComplete) {
+        // Secured Node (Glowing Green)
+        style = { ...style, backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.3)' };
+      }
+
+      return { ...node, style };
+    });
+  }, [allTopics, completedTopicIds, selectedTopicId]);
+
+  // Centralized Edge Styling Function (Animated Data Streams)
+  const styleEdges = (rawEdges: any[]) => {
+    return rawEdges.map(edge => ({
+      ...edge,
+      animated: true,
+      style: { stroke: '#10b981', strokeWidth: 2, filter: 'drop-shadow(0px 0px 4px rgba(16,185,129,0.8))' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' }
+    }));
+  };
+
   const handleGeneratePath = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim() || !currentUserId || !token) return;
@@ -114,33 +146,19 @@ export default function LearningPathGraph() {
       const data = await response.json();
       const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
       
-      const styledNodes = newNodes.map(node => {
-        const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
-        if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
-          return { ...node, style: { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } };
-        }
-        return { ...node, style: { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' } };
-      });
-
-      setNodes(styledNodes); setEdges(newEdges); await fetchAllTopics();
+      setNodes(styleNodes(newNodes)); 
+      setEdges(styleEdges(newEdges)); 
+      await fetchAllTopics();
     } catch (err: any) { setError(err.message); } 
     finally { setIsLoading(false); }
   };
 
+  // Re-run styling whenever selections or completions change
   useEffect(() => {
     if (nodes.length > 0) {
-      setNodes(nds => nds.map(node => {
-        const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
-        const isComplete = matchedTopic && completedTopicIds.includes(matchedTopic.topic_id);
-        return { 
-          ...node, 
-          style: isComplete 
-            ? { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } 
-            : { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' }
-        };
-      }));
+      setNodes(nds => styleNodes(nds));
     }
-  }, [completedTopicIds, allTopics, setNodes]);
+  }, [completedTopicIds, allTopics, selectedTopicId, setNodes, styleNodes]);
 
   const progressStats = useMemo(() => {
     if (nodes.length === 0) return { percent: 0, completed: 0, total: 0 };
@@ -174,14 +192,9 @@ export default function LearningPathGraph() {
       if (response.ok) {
         const data = await response.json();
         const { nodes: newNodes, edges: newEdges } = transformBranchedGraph(data.graph_data);
-        const styledNodes = newNodes.map(node => {
-          const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
-          if (matchedTopic && completedTopicIds.includes(matchedTopic.topic_id)) {
-            return { ...node, style: { backgroundColor: '#064e3b', border: '2px solid #34d399', color: '#a7f3d0', fontWeight: 'bold', boxShadow: '0 0 15px rgba(52, 211, 153, 0.4)' } };
-          }
-          return { ...node, style: { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc' } };
-        });
-        setNodes(styledNodes); setEdges(newEdges); await fetchAllTopics();
+        setNodes(styleNodes(newNodes)); 
+        setEdges(styleEdges(newEdges)); 
+        await fetchAllTopics();
       }
     } catch (err: any) { console.error(err); } finally { setIsExpanding(false); }
   };
@@ -213,26 +226,31 @@ export default function LearningPathGraph() {
     } else { setSelectedTopicId(null); }
   }, [allTopics, token, getHeaders]);
 
-  // Base background style used across screens
   const darkRadialBg = "bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-700 via-[#1a1c23] to-[#0f1115]";
+  
+  // CRT Scanline Overlay Component
+  const ScanlineOverlay = () => (
+    <div className="pointer-events-none absolute inset-0 z-50 opacity-[0.03] mix-blend-overlay" 
+         style={{ backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))', backgroundSize: '100% 2px, 3px 100%' }}>
+    </div>
+  );
 
-  // --- Auth Loading Wall ---
   if (status === "loading") {
-    return <div className={`flex items-center justify-center h-screen ${darkRadialBg} text-slate-300 font-mono tracking-widest uppercase`}>Calibrating UI...</div>;
+    return <div className={`flex items-center justify-center h-screen ${darkRadialBg} text-emerald-400 font-mono tracking-widest uppercase animate-pulse`}>Calibrating UI...<ScanlineOverlay/></div>;
   }
 
-  // --- Glass & Skeuomorphic Auth Wall ---
   if (status === "unauthenticated") {
     return (
-      <div className={`flex flex-col items-center justify-center h-screen ${darkRadialBg} p-4`}>
-        <form onSubmit={handleLoginSubmit} className="bg-white/5 backdrop-blur-2xl p-8 rounded-3xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] max-w-sm w-full relative">
+      <div className={`flex flex-col items-center justify-center h-screen ${darkRadialBg} p-4 relative`}>
+        <ScanlineOverlay />
+        <form onSubmit={handleLoginSubmit} className="bg-white/5 backdrop-blur-2xl p-8 rounded-3xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)] max-w-sm w-full relative z-10 animate-in fade-in zoom-in-95 duration-500">
           
           <div className="absolute top-4 left-4 flex gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0_5px_rgba(239,68,68,0.5)]"></div>
+            <div className="w-3 h-3 rounded-full bg-red-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0_5px_rgba(239,68,68,0.5)] animate-pulse"></div>
             <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5),0_0_5px_rgba(234,179,8,0.5)]"></div>
           </div>
 
-          <h2 className="text-2xl font-bold mt-4 mb-2 text-center text-slate-200 tracking-wider">SYSTEM LOGIN</h2>
+          <h2 className="text-2xl font-bold mt-4 mb-2 text-center text-slate-200 tracking-wider drop-shadow-md">SYSTEM LOGIN</h2>
           <p className="mb-8 text-xs text-slate-400 text-center font-mono uppercase tracking-widest">Awaiting Operator ID</p>
           
           <div className="mb-6">
@@ -247,7 +265,7 @@ export default function LearningPathGraph() {
             />
           </div>
 
-          {loginError && <p className="text-red-400 text-xs font-mono mb-4 text-center">{loginError}</p>}
+          {loginError && <p className="text-red-400 text-xs font-mono mb-4 text-center animate-bounce">{loginError}</p>}
 
           <button 
             type="submit"
@@ -261,20 +279,19 @@ export default function LearningPathGraph() {
     );
   }
 
-  // --- Main App Render ---
   return (
-    <div className={`flex flex-col h-screen w-full ${darkRadialBg} text-slate-200 overflow-hidden`}>
+    <div className={`flex flex-col h-screen w-full ${darkRadialBg} text-slate-200 overflow-hidden relative`}>
+      <ScanlineOverlay />
       
-      {/* HEADER: Glassmorphic Panel */}
-      <div className="p-4 bg-white/5 backdrop-blur-xl border-b border-white/10 z-30 flex gap-4 items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
+      {/* HEADER */}
+      <div className="p-4 bg-white/5 backdrop-blur-xl border-b border-white/10 z-30 flex gap-4 items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.3)] relative">
         <div className="flex items-center gap-4 flex-grow">
           <h1 className="font-bold text-xl mr-4 whitespace-nowrap tracking-wider text-slate-100 flex items-center gap-3">
-            <div className="w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8),inset_0_1px_2px_rgba(255,255,255,0.8)]"></div>
+            <div className="w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8),inset_0_1px_2px_rgba(255,255,255,0.8)] animate-pulse"></div>
             A.I. MATRIX
           </h1>
           
           <form onSubmit={handleGeneratePath} className="flex gap-4 w-full max-w-2xl items-center">
-            {/* Skeuomorphic Recessed Input */}
             <input 
               type="text" 
               value={searchQuery} 
@@ -282,8 +299,6 @@ export default function LearningPathGraph() {
               placeholder="Enter target coordinates (e.g. Python)..." 
               className="flex-grow p-2.5 bg-black/50 border-t border-black/80 border-b border-white/10 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 shadow-[inset_0_3px_6px_rgba(0,0,0,0.6)] text-emerald-100 placeholder-slate-600 font-mono text-sm transition-all" 
             />
-            
-            {/* Retro Mechanical Button */}
             <button 
               type="submit" 
               disabled={isLoading || !currentUserId} 
@@ -292,16 +307,14 @@ export default function LearningPathGraph() {
               {isLoading ? 'Scanning...' : 'Transmit'}
             </button>
           </form>
-
-          {error && <span className="text-red-400 font-mono text-xs uppercase ml-4">{error}</span>}
+          {error && <span className="text-red-400 font-mono text-xs uppercase ml-4 animate-pulse">{error}</span>}
         </div>
         
-        {/* User Menu */}
         <div className="flex items-center gap-4">
           <span className="text-xs text-slate-400 font-mono uppercase tracking-widest">OP: {session?.user?.name}</span>
           <button 
             onClick={() => signOut()} 
-            className="w-8 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600 border border-red-800 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_3px_0_#7f1d1d,0_4px_5px_rgba(0,0,0,0.5)] active:translate-y-[3px] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#7f1d1d,0_1px_2px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all"
+            className="w-8 h-8 rounded-full bg-gradient-to-b from-red-400 to-red-600 border border-red-800 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_3px_0_#7f1d1d,0_4px_5px_rgba(0,0,0,0.5)] active:translate-y-[3px] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#7f1d1d,0_1px_2px_rgba(0,0,0,0.5)] flex items-center justify-center transition-all hover:brightness-110"
             title="Eject"
           >
             <span className="block w-3 h-3 border-2 border-white rounded-full"></span>
@@ -313,35 +326,34 @@ export default function LearningPathGraph() {
         {/* GRAPH AREA */}
         <div className="flex-grow h-full relative z-0">
           {nodes.length === 0 && !isLoading && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-mono uppercase tracking-widest pointer-events-none z-10">
+            <div className="absolute inset-0 flex items-center justify-center text-emerald-600/50 font-mono uppercase tracking-widest pointer-events-none z-10 text-lg drop-shadow-md">
               Awaiting transmission...
             </div>
           )}
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={onNodeClick} fitView>
-            <Background color="#334155" gap={20} size={2} />
+            <Background color="#475569" gap={24} size={2} className="opacity-50" />
             <Controls className="bg-slate-800 border-slate-600 fill-slate-200 shadow-lg" />
-            <MiniMap nodeStrokeWidth={3} zoomable pannable className="bg-slate-900 border border-slate-700" maskColor="rgba(15, 23, 42, 0.7)" />
+            <MiniMap nodeStrokeWidth={3} zoomable pannable className="bg-slate-900 border border-slate-700" maskColor="rgba(15, 23, 42, 0.8)" />
           </ReactFlow>
         </div>
 
-        {/* SIDE PANEL: Glassmorphic with Recessed Modules */}
-        <div className="w-1/3 bg-black/30 backdrop-blur-2xl border-l border-white/10 shadow-[-10px_0_30px_rgba(0,0,0,0.5)] overflow-y-auto flex flex-col z-20">
+        {/* SIDE PANEL */}
+        <div className="w-1/3 bg-black/40 backdrop-blur-3xl border-l border-white/10 shadow-[-15px_0_40px_rgba(0,0,0,0.6)] overflow-y-auto flex flex-col z-20 relative">
           
           <div className="p-6 border-b border-white/5 bg-white/5 flex flex-col gap-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold tracking-widest uppercase text-slate-200">Telemetry</h2>
-              <span className="text-[10px] bg-black/50 text-emerald-400 px-2 py-1 rounded border border-emerald-900 font-mono shadow-inner">ID: {currentUserId}</span>
+              <span className="text-[10px] bg-black/60 text-emerald-400 px-2 py-1 rounded border border-emerald-900/50 font-mono shadow-inner">ID: {currentUserId}</span>
             </div>
             
             {nodes.length > 0 && (
-              <div className="bg-black/40 p-4 rounded-xl shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-white/5">
+              <div className="bg-black/60 p-4 rounded-xl shadow-[inset_0_2px_10px_rgba(0,0,0,0.6)] border border-white/5">
                 <div className="flex justify-between items-end mb-3">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sector Progress</span>
-                  <span className="text-lg font-black text-emerald-400 font-mono">{progressStats.percent}%</span>
+                  <span className="text-lg font-black text-emerald-400 font-mono drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]">{progressStats.percent}%</span>
                 </div>
-                {/* Glowing LED Progress Bar inside Recessed Track */}
                 <div className="w-full bg-black/80 rounded-full h-3.5 mb-2 shadow-[inset_0_2px_4px_rgba(0,0,0,0.8)] border border-white/5 p-0.5">
-                  <div className="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full rounded-full transition-all duration-500 ease-in-out shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ width: `${progressStats.percent}%` }}></div>
+                  <div className="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full rounded-full transition-all duration-700 ease-out shadow-[0_0_12px_rgba(16,185,129,0.9)]" style={{ width: `${progressStats.percent}%` }}></div>
                 </div>
                 <span className="text-[10px] text-slate-500 font-mono uppercase">{progressStats.completed} / {progressStats.total} modules synced</span>
               </div>
@@ -350,8 +362,8 @@ export default function LearningPathGraph() {
           
           <div className="p-6 flex-grow">
             {selectedTopic ? (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                <h3 className="text-2xl font-bold text-emerald-100 mb-6 font-mono border-b border-white/10 pb-2 shadow-[0_1px_0_rgba(0,0,0,0.5)]">{selectedTopic}</h3>
+              <div className="animate-in fade-in slide-in-from-right-8 duration-500 ease-out">
+                <h3 className="text-2xl font-bold text-emerald-100 mb-6 font-mono border-b border-white/10 pb-2 shadow-[0_1px_0_rgba(0,0,0,0.5)] tracking-wide">{selectedTopic}</h3>
                 
                 <div className="grid grid-cols-2 gap-3 mb-8">
                   {selectedTopicId && (
@@ -369,29 +381,29 @@ export default function LearningPathGraph() {
                   )}
                   <button 
                     onClick={handleExpandTopic} disabled={isExpanding || !currentUserId}
-                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#6366f1] to-[#4338ca] border-[#312e81] shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_4px_0_#1e1b4b,0_5px_10px_rgba(0,0,0,0.5)] text-white active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#1e1b4b,0_1px_2px_rgba(0,0,0,0.5)]"
+                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#6366f1] to-[#4338ca] border-[#312e81] shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_4px_0_#1e1b4b,0_5px_10px_rgba(0,0,0,0.5)] text-white active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#1e1b4b,0_1px_2px_rgba(0,0,0,0.5)] hover:brightness-110"
                   >
                     {isExpanding ? 'Routing...' : 'Deep Scan'}
                   </button>
                   <button 
                     onClick={handleMarkAsKnown} disabled={isMarkingKnown || !selectedTopicId || !currentUserId}
-                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#475569] to-[#334155] border-[#1e293b] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_0_#0f172a,0_5px_10px_rgba(0,0,0,0.5)] text-slate-300 active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#0f172a,0_1px_2px_rgba(0,0,0,0.5)]"
+                    className="py-2.5 rounded-lg font-bold tracking-wider uppercase text-[10px] transition-all active:translate-y-[3px] bg-gradient-to-b from-[#475569] to-[#334155] border-[#1e293b] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_0_#0f172a,0_5px_10px_rgba(0,0,0,0.5)] text-slate-300 active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.4),0_0_0_#0f172a,0_1px_2px_rgba(0,0,0,0.5)] hover:brightness-110"
                   >
                     {isMarkingKnown ? 'Purging...' : 'Purge Node'}
                   </button>
                 </div>
                 
                 {isLoadingData ? (
-                  <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div></div>
+                  <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)]"></div></div>
                 ) : (
-                  <>
+                  <div className="animate-in fade-in duration-700 delay-100 fill-mode-both">
                     <div className="mb-8">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_5px_#f59e0b]"></span> Objectives</h4>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b] animate-pulse"></span> Objectives</h4>
                       {projects.length > 0 ? (
                         <div className="space-y-4">
                           {projects.map((proj) => (
-                            <div key={proj.id} className="p-4 rounded-xl border border-white/5 bg-black/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_4px_6px_rgba(0,0,0,0.3)] hover:border-amber-500/30 transition-colors">
-                              <h5 className="font-bold text-amber-400 text-sm mb-2">{proj.title}</h5>
+                            <div key={proj.id} className="p-4 rounded-xl border border-white/5 bg-black/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_4px_6px_rgba(0,0,0,0.4)] hover:border-amber-500/40 transition-all hover:bg-black/40 group">
+                              <h5 className="font-bold text-amber-400 text-sm mb-2 group-hover:text-amber-300 transition-colors drop-shadow-md">{proj.title}</h5>
                               {proj.description && <p className="text-xs text-slate-300 leading-relaxed opacity-80">{proj.description}</p>}
                             </div>
                           ))}
@@ -400,26 +412,26 @@ export default function LearningPathGraph() {
                     </div>
 
                     <div>
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_5px_#3b82f6]"></span> Data Logs</h4>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6] animate-pulse"></span> Data Logs</h4>
                       {resources.length > 0 ? (
                         <div className="space-y-3">
                           {resources.map((res) => (
-                            <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-xl border border-white/5 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.2)] hover:bg-white/10 hover:border-blue-400/50 transition-all group">
-                              <h5 className="font-medium text-slate-200 text-sm group-hover:text-blue-400 transition-colors">{res.title}</h5>
+                            <a key={res.id} href={res.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-xl border border-white/5 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_2px_4px_rgba(0,0,0,0.3)] hover:bg-white/10 hover:border-blue-400/60 transition-all hover:-translate-y-0.5 group">
+                              <h5 className="font-medium text-slate-200 text-sm group-hover:text-blue-400 transition-colors drop-shadow-md">{res.title}</h5>
                             </a>
                           ))}
                         </div>
                       ) : (<p className="text-xs text-slate-600 font-mono italic">No data logs found.</p>)}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center mt-10">
-                <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_5px_rgba(0,0,0,0.5)] border border-white/5">
-                  <div className="w-4 h-4 rounded-full bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"></div>
+              <div className="flex flex-col items-center justify-center h-full text-center mt-10 animate-in fade-in duration-1000">
+                <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_5px_rgba(0,0,0,0.7)] border border-white/5">
+                  <div className="w-4 h-4 rounded-full bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.5)] animate-ping"></div>
                 </div>
-                <p className="text-slate-500 font-mono text-xs tracking-widest uppercase">Select Node for Analysis</p>
+                <p className="text-slate-500 font-mono text-xs tracking-widest uppercase animate-pulse">Select Node for Analysis</p>
               </div>
             )}
           </div>
