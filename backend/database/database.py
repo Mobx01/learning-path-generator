@@ -2,6 +2,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
+from sqlalchemy.pool import NullPool # <-- Cleanly imports the pool bypass engine
 
 # Load the variables from the .env file
 load_dotenv()
@@ -10,7 +11,8 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL)
+# FIXED: Changed 'pool_class' to 'poolclass'
+engine = create_engine(DATABASE_URL, poolclass=NullPool)
 
 # Create a session local class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -5,23 +5,30 @@ const handler = NextAuth({
   providers: [
     CredentialsProvider({
       name: "Username",
-      // 1. Remove the password field from the login form
       credentials: {
         username: { label: "Username", type: "text", placeholder: "e.g., testuser" }
       },
       async authorize(credentials) {
         try {
-          // 2. Adjust the payload to only send what your backend expects
-          // Note: If your backend /users/login expects something different, adjust the body here.
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/users/login`, {
+          const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+          const cleanBackendUrl = backendUrl.replace(/\/$/, "");
+
+          console.log(`NextAuth fetching login from backend: ${cleanBackendUrl}/users/login`);
+
+          const res = await fetch(`${cleanBackendUrl}/users/login`, {
             method: 'POST',
             body: JSON.stringify({ username: credentials?.username }),
             headers: { "Content-Type": "application/json" }
           });
 
+          if (!res.ok) {
+            console.error(`Backend auth route error status: ${res.status}`);
+            return null;
+          }
+
           const user = await res.json();
 
-          if (res.ok && user) {
+          if (user) {
             return { 
               id: user.user_id?.toString() || user.id?.toString(), 
               token: user.access_token, 
@@ -30,7 +37,7 @@ const handler = NextAuth({
           }
           return null;
         } catch (error) {
-          console.error("Auth error:", error);
+          console.error("NextAuth link connection error:", error);
           return null;
         }
       }

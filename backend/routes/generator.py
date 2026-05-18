@@ -13,7 +13,7 @@ from models import schemas
 from models import models
 from services.graph import generate_learning_path
 from services.ai_expansion import generate_ai_topics, merge_ai_path_into_db
-# from services.auth import get_current_user  <-- Commented out for now
+from services.auth import get_current_user # <-- ENABLED AUTH
 
 router = APIRouter(
     prefix="/generator",
@@ -29,20 +29,19 @@ redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 # Initialize the limiter using Redis as the storage backend
 limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL)
 
-
 # POST /generate-path
 @router.post("/generate-path")
 @limiter.limit("5/minute") # Restrict to 5 generations per minute per IP
 def generate_path(
     request: Request, # <-- REQUIRED BY SLOWAPI
-    path_request: schemas.PathRequest, # <-- Renamed to avoid collision
-    db: Session = Depends(get_db)
-    # current_user: models.User = Depends(get_current_user) <-- TEMPORARILY REMOVED
+    path_request: schemas.PathRequest, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- REQUIRE AUTHENTICATION
 ):
     clean_topic = path_request.topic.strip().lower()
     
-    # Use path_request.user_id (sent by frontend) instead of current_user.id
-    user_id = path_request.user_id 
+    # Use the authenticated user's ID securely, NOT the client's payload
+    user_id = current_user.id 
     
     cache_key = f"graph:{user_id}:{clean_topic}"
     
@@ -87,13 +86,13 @@ def generate_path(
 @router.post("/expand-topic")
 @limiter.limit("5/minute") # Restrict to 5 expansions per minute per IP
 def expand_topic(
-    request: Request, # <-- REQUIRED BY SLOWAPI
-    path_request: schemas.PathRequest, # <-- Renamed to avoid collision
-    db: Session = Depends(get_db)
-    # current_user: models.User = Depends(get_current_user) <-- TEMPORARILY REMOVED
+    request: Request, 
+    path_request: schemas.PathRequest, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- REQUIRE AUTHENTICATION
 ):
     """Explicitly triggers AI expansion for an existing node to deepen the hybrid graph."""
-    user_id = path_request.user_id # Use the ID from the frontend
+    user_id = current_user.id # <-- Securely extract ID from token
 
     try:
         print(f"Force expanding '{path_request.topic}' via AI...")

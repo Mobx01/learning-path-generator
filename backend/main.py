@@ -4,15 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-# Import the exception handlers
+# 1. LOAD ENVIRONMENT VARIABLES FIRST!
+load_dotenv()
+
+# 2. NOW import the rest of your modules
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 # Import the Redis-backed limiter we defined in the generator route
 from routes.generator import limiter 
-
-# Load environment variables from the .env file
-load_dotenv()
 
 from database.database import get_db, engine, Base
 from models import models
@@ -38,7 +38,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
 app.add_middleware(
     CORSMiddleware,
-    # Allow the exact frontend URL, plus localhost for your own testing
     allow_origins=[FRONTEND_URL, "http://localhost:3000"], 
     allow_credentials=True,
     allow_methods=["*"],

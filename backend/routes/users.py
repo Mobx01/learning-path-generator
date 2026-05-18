@@ -3,20 +3,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database.database import get_db
 from models import models, schemas
-from services.auth import create_access_token
+from services.auth import create_access_token, get_current_user # <-- IMPORT get_current_user
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"]
 )
 
-# --- BULLETPROOF HELPER: Safely inject User 1 ---
+# --- BULLETPROOF HELPER: Safely inject User ---
 def ensure_user_exists(db: Session, user_id: int):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         print(f"User {user_id} is missing! Attempting to create...")
         try:
-            # Safely insert the user bypassing SQLAlchemy's auto-increment restrictions
             db.execute(
                 text("INSERT INTO users (id, username) VALUES (:id, :username) ON CONFLICT (id) DO NOTHING"),
                 {"id": user_id, "username": f"guest_user_{user_id}"}
@@ -42,7 +41,15 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 # Mark a topic as known
 @router.post("/{user_id}/known-topics")
-def mark_topic_known(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
+def mark_topic_known(
+    user_id: int, 
+    req: schemas.MarkTopicKnownRequest, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- SECURED
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's data")
+        
     ensure_user_exists(db, user_id) 
 
     existing = db.query(models.UserKnownTopic).filter(
@@ -59,7 +66,14 @@ def mark_topic_known(user_id: int, req: schemas.MarkTopicKnownRequest, db: Sessi
     
 # Get all known topics for a user
 @router.get("/{user_id}/known-topics")
-def get_known_topics(user_id: int, db: Session = Depends(get_db)):
+def get_known_topics(
+    user_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- SECURED
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this user's data")
+        
     known = db.query(models.UserKnownTopic).filter(models.UserKnownTopic.user_id == user_id).all()
     return [k.topic_id for k in known]
 
@@ -69,7 +83,15 @@ def get_known_topics(user_id: int, db: Session = Depends(get_db)):
 
 # Mark a topic as completed
 @router.post("/{user_id}/completed-topics")
-def mark_topic_completed(user_id: int, req: schemas.MarkTopicKnownRequest, db: Session = Depends(get_db)):
+def mark_topic_completed(
+    user_id: int, 
+    req: schemas.MarkTopicKnownRequest, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- SECURED
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's data")
+        
     ensure_user_exists(db, user_id) 
 
     existing = db.query(models.UserCompletedTopic).filter(
@@ -85,7 +107,15 @@ def mark_topic_completed(user_id: int, req: schemas.MarkTopicKnownRequest, db: S
 
 # Remove a topic from completed (Undo)
 @router.delete("/{user_id}/completed-topics/{topic_id}")
-def unmark_topic_completed(user_id: int, topic_id: int, db: Session = Depends(get_db)):
+def unmark_topic_completed(
+    user_id: int, 
+    topic_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- SECURED
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this user's data")
+        
     existing = db.query(models.UserCompletedTopic).filter(
         models.UserCompletedTopic.user_id == user_id,
         models.UserCompletedTopic.topic_id == topic_id
@@ -98,7 +128,14 @@ def unmark_topic_completed(user_id: int, topic_id: int, db: Session = Depends(ge
 
 # Get all completed topics for a user
 @router.get("/{user_id}/completed-topics")
-def get_completed_topics(user_id: int, db: Session = Depends(get_db)):
+def get_completed_topics(
+    user_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- SECURED
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this user's data")
+        
     completed = db.query(models.UserCompletedTopic).filter(models.UserCompletedTopic.user_id == user_id).all()
     return [c.topic_id for c in completed]
 
