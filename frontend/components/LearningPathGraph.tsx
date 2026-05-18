@@ -94,14 +94,15 @@ export default function LearningPathGraph() {
     finally { setIsLoggingIn(false); }
   };
 
-  // Centralized Node Styling Function
+  // Centralized Node Styling Function (WITH TYPESCRIPT FIX)
   const styleNodes = useCallback((rawNodes: any[]) => {
     return rawNodes.map(node => {
       const matchedTopic = allTopics.find(t => t.topic_name.toLowerCase() === node.data.label.toLowerCase());
       const isComplete = matchedTopic && completedTopicIds.includes(matchedTopic.topic_id);
       const isSelected = matchedTopic && matchedTopic.topic_id === selectedTopicId;
 
-      let style = { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc', transition: 'all 0.3s ease' };
+      // The explicit React.CSSProperties type fixes the Vercel build error
+      let style: React.CSSProperties = { backgroundColor: '#1e293b', border: '2px solid #475569', color: '#f8fafc', transition: 'all 0.3s ease' };
       
       if (isSelected) {
         // Active Target Lock (Glowing Amber)
